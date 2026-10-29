@@ -1,0 +1,9 @@
+parameters:
+    level: 8
+    phpVersion: 80200
+    paths:
+        - src
+        - tests
+        - examples
+        - tools
+    tmpDir: .phpstan-cache

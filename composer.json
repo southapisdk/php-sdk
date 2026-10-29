@@ -1,0 +1,61 @@
+{
+  "name": "southapi/merchant-sdk",
+  "description": "Standalone PHP client for the SouthAPI merchant API",
+  "type": "library",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.2",
+    "ext-json": "*",
+    "guzzlehttp/guzzle": "^7.10",
+    "ext-curl": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.5",
+    "phpstan/phpstan": "^2.1",
+    "ext-zip": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "SouthApi\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "SouthApi\\Tests\\": "tests/",
+      "SouthApi\\Build\\": "tools/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "analyse": "phpstan analyse --memory-limit=512M",
+    "check": [
+      "@composer validate --strict",
+      "@test",
+      "@analyse",
+      "@scan"
+    ],
+    "scan": "php tools/scan.php",
+    "release": "php tools/release.php",
+    "consumer": "php tools/consumer.php"
+  },
+  "archive": {
+    "exclude": [
+      "/tests",
+      "/tools",
+      "/vendor",
+      "/dist",
+      "/.github",
+      "/.gitignore",
+      "/CONTRACT-NOTES.md",
+      "/phpunit.xml",
+      "/phpstan.neon",
+      "/composer.lock",
+      "/.phpunit.cache",
+      "/.phpstan-cache"
+    ]
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": false
+  }
+}
