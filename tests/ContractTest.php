@@ -34,7 +34,7 @@ final class ContractTest extends TestCase
         self::assertCount(1, $transport->requests);
         $request = $transport->requests[0];
         self::assertSame($operation['method'], $request->method);
-        self::assertSame('https://api.southapi.com' . $operation['path'] . ($operation['query'] === '' ? '' : '?' . $operation['query']), $request->url);
+        self::assertSame('https://southapi.com' . $operation['path'] . ($operation['query'] === '' ? '' : '?' . $operation['query']), $request->url);
         self::assertSame($operation['body'], $request->body);
         if ($operation['key'] === 'none') {
             self::assertArrayNotHasKey('X-Merchant', $request->headers);

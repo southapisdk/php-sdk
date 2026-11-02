@@ -11,7 +11,7 @@ final readonly class Configuration
     public string $baseUrl;
 
     public function __construct(
-        #[\SensitiveParameter] string $baseUrl = 'https://api.southapi.com',
+        #[\SensitiveParameter] string $baseUrl = 'https://southapi.com',
         public float $connectTimeout = 5.0,
         public float $requestTimeout = 30.0,
         public int $maxResponseBytes = 10_485_760,

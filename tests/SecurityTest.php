@@ -105,7 +105,7 @@ final class SecurityTest extends TestCase
     {
         $transport = new RecordingTransport();
         (new Client(transport: $transport))->rates->get('USDT/https://other.example?q=x');
-        self::assertSame('https://api.southapi.com/api/v1/fx-rates/USDT%2Fhttps%3A%2F%2Fother.example%3Fq%3Dx', $transport->requests[0]->url);
+        self::assertSame('https://southapi.com/api/v1/fx-rates/USDT%2Fhttps%3A%2F%2Fother.example%3Fq%3Dx', $transport->requests[0]->url);
         self::assertArrayNotHasKey('sign', $transport->requests[0]->headers);
         self::assertArrayNotHasKey('X-Signature', $transport->requests[0]->headers);
         self::assertArrayNotHasKey('X-Timestamp', $transport->requests[0]->headers);
@@ -120,7 +120,7 @@ final class SecurityTest extends TestCase
         $client->payments->search(['created_from' => '2026-01-01', 'cursor' => $first->nextCursor ?? '']);
         self::assertCount(2, $transport->requests);
         self::assertSame($transport->requests[0]->body, $transport->requests[1]->body);
-        self::assertSame('https://api.southapi.com/api/v1/charges?created_from=2026-01-01&cursor=https%3A%2F%2Fother.example%2F', $transport->requests[1]->url);
+        self::assertSame('https://southapi.com/api/v1/charges?created_from=2026-01-01&cursor=https%3A%2F%2Fother.example%2F', $transport->requests[1]->url);
     }
 
     /** @return iterable<string, array{Response, class-string<SdkException>}> */

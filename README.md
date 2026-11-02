@@ -57,7 +57,7 @@ secret store, service configuration or application's environment loader. The SDK
 does not read `.env` automatically. Never place keys in browser code, URLs, version
 control or publicly accessible files. Payment-only integrations can omit the payout
 key. Public rates do not need credentials. If no configuration is supplied, the
-origin defaults to `https://api.southapi.com`; use your assigned host explicitly.
+origin defaults to `https://southapi.com`; use your assigned host explicitly.
 
 ## Operations
 

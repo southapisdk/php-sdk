@@ -76,7 +76,7 @@ final class GuzzleTransportTest extends TestCase
         $mock = new MockHandler([new HttpResponse(200, [], str_repeat('x', 65))]);
         $transport = new GuzzleTransport(new Configuration(maxResponseBytes: 64), new HttpClient(['handler' => $mock]));
         $this->expectException(ProtocolException::class);
-        $transport->send(new Request('GET', 'https://api.southapi.com/api/v1/fx-rates', [], ''));
+        $transport->send(new Request('GET', 'https://southapi.com/api/v1/fx-rates', [], ''));
     }
 
     public function testForeignDestinationRejectedBeforeHttp(): void
@@ -84,7 +84,7 @@ final class GuzzleTransportTest extends TestCase
         $mock = new MockHandler([new HttpResponse(200)]);
         $transport = new GuzzleTransport(new Configuration(), new HttpClient(['handler' => $mock]));
         try {
-            $transport->send(new Request('GET', 'https://api.southapi.com.attacker.example/api/v1/fx-rates', [], ''));
+            $transport->send(new Request('GET', 'https://southapi.com.attacker.example/api/v1/fx-rates', [], ''));
             self::fail('Foreign origin accepted.');
         } catch (TransportException) {
             self::assertSame(1, $mock->count());
@@ -95,13 +95,13 @@ final class GuzzleTransportTest extends TestCase
         $mock = new MockHandler([new HttpResponse(200, [], str_repeat('x', 65))]);
         $transport = new GuzzleTransport(new Configuration(maxResponseBytes: 64), new HttpClient(['handler' => HandlerStack::create($mock)]));
         $this->expectException(ProtocolException::class);
-        $transport->send(new Request('GET', 'https://api.southapi.com/api/v1/fx-rates', [], ''));
+        $transport->send(new Request('GET', 'https://southapi.com/api/v1/fx-rates', [], ''));
     }
 
     public function testFactoryBlocksSecondAttemptBeforeCreatingCurlHandle(): void
     {
         $factory = new \SouthApi\Http\SingleAttemptCurlFactory();
-        $request = new \GuzzleHttp\Psr7\Request('POST', 'https://api.southapi.com/api/v1/funds', [], '{}');
+        $request = new \GuzzleHttp\Psr7\Request('POST', 'https://southapi.com/api/v1/funds', [], '{}');
         $handle = $factory->create($request, []);
         $factory->release($handle);
         $this->expectException(TransportException::class);
