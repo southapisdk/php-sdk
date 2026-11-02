@@ -68,8 +68,12 @@ final class Parameters
                 self::invalid();
             }
         }
-        if ($path === '/api/v1/cashouts/quote' && (isset($values['merchant_order']) || isset($values['links']) || isset($values['simulation']) || self::value($values, 'chain.memo') !== null || self::value($values, 'amount.source_asset') !== null)) {
-            self::invalid();
+        if ($path === '/api/v1/cashouts/quote') {
+            foreach (['merchant_order', 'links', 'simulation', 'chain.memo', 'amount.source_asset'] as $excluded) {
+                if (self::has($values, $excluded)) {
+                    self::invalid();
+                }
+            }
         }
         self::walk($values, $path);
         if ($path === '/api/v1/fund-transfers' && !in_array($values['direction'] ?? null, ['to_personal', 'to_business'], true)) {
@@ -85,15 +89,11 @@ final class Parameters
             if (in_array($field, ['pricing', 'settlement', 'checkout', 'links', 'customer', 'simulation', 'amount', 'chain', 'asset', 'refund', 'contacts', 'recipient'], true) && $value !== null && !is_array($value)) {
                 self::invalid();
             }
-            if (is_array($value)) {
-                self::walk($value, $path, $field);
-                continue;
-            }
             if ($value === null) {
                 continue;
             }
             if (in_array($key, ['display_total', 'pre_tax_total', 'tax_total', 'unit_price', 'payment_tolerance_rate'], true)) {
-                if (!is_string($value) || strlen($value) > 40 || !preg_match('/\A\d+(?:\.\d+)?\z/', $value)) {
+                if (!is_string($value) || ($path === '/api/v1/charges' && $field === 'pricing.display_total' && strlen($value) > 40) || !preg_match('/\A\d+(?:\.\d+)?\z/', $value)) {
                     self::invalid();
                 }
             }
@@ -120,6 +120,9 @@ final class Parameters
                     self::invalid();
                 }
             }
+            if (is_array($value)) {
+                self::walk($value, $path, $field);
+            }
         }
     }
 
@@ -134,6 +137,19 @@ final class Parameters
             $value = $value[$key];
         }
         return $value;
+    }
+
+    /** @param array<string, mixed> $values */
+    private static function has(array $values, string $path): bool
+    {
+        $value = $values;
+        foreach (explode('.', $path) as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return false;
+            }
+            $value = $value[$key];
+        }
+        return true;
     }
 
     private static function invalid(): never

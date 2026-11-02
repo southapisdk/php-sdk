@@ -82,7 +82,7 @@ final class GuzzleTransport implements Transport
             } finally {
                 $stream->close();
             }
-            return new Response($response->getStatusCode(), $body);
+            return new Response($response->getStatusCode(), $body, $response->getHeaderLine('Content-Type'));
         } catch (ProtocolException) {
             throw new ProtocolException('Response exceeds the configured size limit.');
         } catch (Throwable) {

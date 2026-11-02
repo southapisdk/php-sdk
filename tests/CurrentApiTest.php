@@ -64,7 +64,7 @@ final class CurrentApiTest extends TestCase
     public function testPdfBytesArePreservedAndErrorsParsed(): void
     {
         $pdf = "%PDF-1.7\n\x00\xff\r\n";
-        $transport = new RecordingTransport(new Response(200, $pdf));
+        $transport = new RecordingTransport(new Response(200, $pdf, 'application/pdf'));
         $client = $this->client($transport);
         self::assertSame($pdf, $client->bills->pdf('test-ref'));
         self::assertSame('application/pdf', $transport->requests[0]->headers['Accept']);

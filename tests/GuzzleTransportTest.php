@@ -41,6 +41,24 @@ final class GuzzleTransportTest extends TestCase
         self::assertSame(30.0, $history[0]['options']['timeout']);
     }
 
+    public function testPdfMediaTypeSurvivesTransportAndJsonIsRejected(): void
+    {
+        $bytes = "%PDF-1.7\n\x00\xff";
+        $mock = new MockHandler([
+            new HttpResponse(200, ['content-type' => 'application/pdf'], $bytes),
+            new HttpResponse(200, ['Content-Type' => 'application/json'], '{"outcome":0,"content":null}'),
+        ]);
+        $configuration = new Configuration();
+        $client = new Client(
+            new Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key'),
+            $configuration,
+            new GuzzleTransport($configuration, new HttpClient(['handler' => HandlerStack::create($mock)])),
+        );
+        self::assertSame($bytes, $client->bills->pdf('ref'));
+        $this->expectException(ProtocolException::class);
+        $client->bills->pdf('ref');
+    }
+
     public function testRedirectIsNotFollowed(): void
     {
         $mock = new MockHandler([new HttpResponse(302, ['Location' => 'https://other.example']), new HttpResponse(200)]);

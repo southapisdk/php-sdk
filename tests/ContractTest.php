@@ -28,7 +28,7 @@ final class ContractTest extends TestCase
     #[DataProvider('operations')]
     public function testEveryDocumentedOperation(array $operation): void
     {
-        $transport = new RecordingTransport(new Response($operation['status'], $operation['response']));
+        $transport = new RecordingTransport(new Response($operation['status'], $operation['response'], str_ends_with($operation['path'], '/pdf') ? 'application/pdf' : null));
         $client = new Client(new Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key', 'test-payout-key', static fn (): int => 1_800_000_000), transport: $transport);
         $result = ($operation['invoke'])($client);
         self::assertCount(1, $transport->requests);

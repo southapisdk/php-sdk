@@ -131,7 +131,9 @@ returned phase and `finished` fields.
 Balances expose `business()` and `personal()` lists; their raw content is directly
 `['business' => [...], 'personal' => [...]]`. Transfers return business/personal
 objects. `bills->pdf()` returns the exact PDF bytes, without base64 or a JSON
-envelope; the SDK does not choose filenames or write files. `rates->xml()` returns
+envelope; the SDK requires an `application/pdf` response media type and does not
+choose filenames or write files. Custom transports must pass the server media type
+as the third argument (`contentType`) of `SouthApi\Http\Response`. `rates->xml()` returns
 raw XML without parsing entities.
 
 ```php

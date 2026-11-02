@@ -71,6 +71,10 @@ final class Session
             throw new ProtocolException('API redirects are not accepted.');
         }
         if ($format !== null && $response->status === 200) {
+            if ($format === 'application/pdf'
+                && strtolower(trim(explode(';', $response->contentType ?? '', 2)[0])) !== 'application/pdf') {
+                throw new ProtocolException('API returned an unexpected PDF content type.');
+            }
             return $response->body;
         }
         try {

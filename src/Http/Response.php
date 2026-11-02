@@ -10,7 +10,7 @@ final readonly class Response
 {
     use Redacted;
 
-    public function __construct(public int $status, #[\SensitiveParameter] public string $body)
+    public function __construct(public int $status, #[\SensitiveParameter] public string $body, public ?string $contentType = null)
     {
     }
 }
