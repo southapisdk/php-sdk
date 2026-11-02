@@ -8,12 +8,13 @@ use SouthApi\Security\Credentials;
 
 /** Supply values from your application's secret store; the SDK does not read .env. */
 function configureSouthApi(
+    #[\SensitiveParameter] string $baseUrl,
     #[\SensitiveParameter] string $merchantId,
     #[\SensitiveParameter] string $paymentKey,
     #[\SensitiveParameter] ?string $payoutKey = null,
 ): Client {
     return new Client(
         new Credentials($merchantId, $paymentKey, $payoutKey),
-        new Configuration(connectTimeout: 5, requestTimeout: 30),
+        new Configuration(baseUrl: $baseUrl, connectTimeout: 5, requestTimeout: 30),
     );
 }

@@ -8,7 +8,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 $root = dirname(__DIR__);
 $walk = static function (string $directory) use (&$walk): void {
     foreach (new DirectoryIterator($directory) as $entry) {
-        if ($entry->isDot() || in_array($entry->getFilename(), ['vendor', 'dist', '.git', '.phpunit.cache', '.phpstan-cache', 'CONTRACT-NOTES.md'], true)) {
+        if ($entry->isDot() || in_array($entry->getFilename(), ['vendor', 'dist', '.git', '.phpunit.cache', '.phpstan-cache', '.infection', 'CONTRACT-NOTES.md'], true)) {
             continue;
         }
         if ($entry->isLink()) {

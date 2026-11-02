@@ -12,7 +12,7 @@ final class RecordingTransport implements Transport
     /** @var list<Request> */
     public array $requests = [];
 
-    public function __construct(public Response|Throwable $response = new Response(200, '{"outcome":0,"content":[[]]}'))
+    public function __construct(public Response|Throwable $response = new Response(200, '{"outcome":0,"content":{"business":[],"personal":[]}}'))
     {
     }
 

@@ -39,29 +39,29 @@ $transport = new class implements \SouthApi\Http\Transport {
     }
 };
 $client = new \SouthApi\Client(new \SouthApi\Security\Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key'), transport: $transport);
-$result = $client->payments->create(['display_total' => '1.00000001', 'asset_code' => 'USD', 'merchant_order' => 'test-order-1']);
+$result = $client->payments->create(['pricing' => ['display_total' => '1.00000001', 'asset_code' => 'USD'], 'merchant_order' => 'test-order-1']);
 $client->rates->all();
 if ($result->content()['display_total'] !== '1.00000001' || count($transport->requests) !== 2 || isset($transport->requests[1]->headers['sign']) || isset($transport->requests[1]->headers['X-Signature']) || isset($transport->requests[1]->headers['X-Timestamp'])) {
     throw new RuntimeException('Consumer behavior mismatch.');
 }
 if (isset($transport->requests[0]->headers['sign'])
     || !isset($transport->requests[0]->headers['X-Timestamp'], $transport->requests[0]->headers['X-Signature'])
-    || !hash_equals(hash_hmac('sha256', $transport->requests[0]->headers['X-Timestamp'] . '.' . $transport->requests[0]->body, 'test-payment-key'), $transport->requests[0]->headers['X-Signature'])) {
+    || !hash_equals(hash_hmac('sha256', $transport->requests[0]->headers['X-Timestamp'] . '.POST./api/v1/charges.' . $transport->requests[0]->body, 'test-payment-key'), $transport->requests[0]->headers['X-Signature'])) {
     throw new RuntimeException('Consumer authentication mismatch.');
 }
 $page = new \SouthApi\Responses\Page(['entries'=>[], 'pagination'=>['item_count'=>0, 'has_more'=>true, 'next_cursor'=>null, 'previous_cursor'=>'previous', 'page_size'=>15]]);
-if ($page->hasMore || !$page->hasPages) {
+if (!$page->hasMore) {
     throw new RuntimeException('Consumer pagination mismatch.');
 }
-$balances = new \SouthApi\Responses\BalanceResult([['balances'=>['business'=>[['available_balance'=>'1.00000001']], 'personal'=>[]]]]);
+$balances = new \SouthApi\Responses\BalanceResult(['business'=>[['available_balance'=>'1.00000001']], 'personal'=>[]]);
 if ($balances->business()[0]['available_balance'] !== '1.00000001' || $balances->personal() !== []) {
     throw new RuntimeException('Consumer balances mismatch.');
 }
 $verifier = new \SouthApi\Security\WebhookVerifier(new \SouthApi\Security\Credentials(paymentKey: 'test-payment-key'));
-$body = '{"event_kind":"payment","display_total":"1.00000001"}';
+$body = '{"event_kind":"payment","data":{"display_total":"1.00000001"}}';
 $timestamp = (string) time();
 $signature = hash_hmac('sha256', $timestamp . '.' . $body, 'test-payment-key');
-if ($verifier->verify($body, $timestamp, $signature)->content()['display_total'] !== '1.00000001') {
+if ($verifier->verify($body, $timestamp, $signature)->arrayContent()['data']['display_total'] !== '1.00000001') {
     throw new RuntimeException('Consumer webhook mismatch.');
 }
 foreach (['configuration', 'payments', 'pagination', 'webhook'] as $example) {

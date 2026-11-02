@@ -10,9 +10,10 @@
     "ext-curl": "*"
   },
   "require-dev": {
-    "phpunit/phpunit": "^11.5",
+    "ext-zip": "*",
+    "infection/infection": "^0.32.6",
     "phpstan/phpstan": "^2.1",
-    "ext-zip": "*"
+    "phpunit/phpunit": "^11.5"
   },
   "autoload": {
     "psr-4": {
@@ -36,7 +37,8 @@
     ],
     "scan": "php tools/scan.php",
     "release": "php tools/release.php",
-    "consumer": "php tools/consumer.php"
+    "consumer": "php tools/consumer.php",
+    "infection": "infection --threads=4 --no-progress --with-uncovered --with-timeouts"
   },
   "archive": {
     "exclude": [
@@ -51,7 +53,9 @@
       "/phpstan.neon",
       "/composer.lock",
       "/.phpunit.cache",
-      "/.phpstan-cache"
+      "/.phpstan-cache",
+      "/infection.json.dist",
+      "/.infection"
     ]
   },
   "config": {

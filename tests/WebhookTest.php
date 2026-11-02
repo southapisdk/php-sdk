@@ -14,10 +14,10 @@ final class WebhookTest extends TestCase
     /** @return iterable<string, array{string, string}> */
     public static function vectors(): iterable
     {
-        yield 'payment' => ['payment', '75f8c0bbefe01b66e702efc5275c964b4ce0fc2b2c16f3f127227ced64418772'];
-        yield 'deposit' => ['deposit', 'db67e52bcd1a12fa155b25a82ea6ccd58b085fd106eecf1ecb9aeaa2fb376e51'];
-        yield 'withdrawal' => ['withdrawal', '6850e90b2c799da52eb255123e9e8c284eb66fbf86cc8040943c53a20a2a7a2d'];
-        yield 'blocked' => ['blocked_address_payment', 'ca7ed5456a5be70aa80301c462341b7837e17006e71adb012e4e50e97b4d64e2'];
+        yield 'payment' => ['payment', 'a19ce150f8158894e21fdd857b4b46a67b80a1881dc132206c4e4149878e7711'];
+        yield 'deposit' => ['deposit', '5e2b31d4d335ca7ab70590d34f817615af60aaafae6b352609de5ff8424a7baa'];
+        yield 'withdrawal' => ['withdrawal', '14b7f65a0e6ded2d39a9fa106a7240b402cf4d6d19ce28769dc36037a77bc5e0'];
+        yield 'blocked' => ['blocked_deposit', 'c4e4dc1848e229ce090ac7c0ddce1c91cab95327d846b74c45c9cfbe69a68b54'];
     }
 
     private function verifier(int $now = 1_800_000_000): WebhookVerifier
@@ -27,7 +27,7 @@ final class WebhookTest extends TestCase
 
     private static function body(string $kind): string
     {
-        return '{"event_kind":"' . $kind . '","payment_reference":"00000000-0000-4000-8000-000000000001","display_total":"1.00000001"}';
+        return '{"event_kind":"' . $kind . '","data":{"payment_reference":"00000000-0000-4000-8000-000000000001","amounts":{"display_total":"1.00000001"},"conversion":null}}';
     }
 
     #[DataProvider('vectors')]
@@ -35,8 +35,8 @@ final class WebhookTest extends TestCase
     {
         $verifier = $this->verifier();
         $event = $verifier->verify(self::body($kind), '1800000000', $signature);
-        self::assertSame($kind, $event->content()['event_kind']);
-        self::assertSame('1.00000001', $event->content()['display_total']);
+        self::assertSame($kind, $event->arrayContent()['event_kind']);
+        self::assertSame(['display_total' => '1.00000001'], $event->arrayContent()['data']['amounts']);
         self::assertSame($event->content(), $verifier->verify(self::body($kind), '1800000000', $signature)->content());
     }
 
@@ -44,7 +44,8 @@ final class WebhookTest extends TestCase
     public static function invalid(): iterable
     {
         $body = self::body('payment');
-        $valid = '75f8c0bbefe01b66e702efc5275c964b4ce0fc2b2c16f3f127227ced64418772';
+        $valid = 'a19ce150f8158894e21fdd857b4b46a67b80a1881dc132206c4e4149878e7711';
+        yield 'request signature is not webhook signature' => [$body, '1800000000', hash_hmac('sha256', '1800000000.POST./api/v1/charges.' . $body, 'test-payment-key'), 1_800_000_000];
         yield 'past' => [$body, '1800000000', $valid, 1_800_000_301];
         yield 'future' => [$body, '1800000000', $valid, 1_799_999_699];
         yield 'changed bytes' => [$body . ' ', '1800000000', $valid, 1_800_000_000];
@@ -74,13 +75,13 @@ final class WebhookTest extends TestCase
     public function testBothClockBoundaries(): void
     {
         foreach ([1_799_999_700, 1_800_000_300] as $now) {
-            self::assertSame('payment', $this->verifier($now)->verify(self::body('payment'), '1800000000', '75f8c0bbefe01b66e702efc5275c964b4ce0fc2b2c16f3f127227ced64418772')->content()['event_kind']);
+            self::assertSame('payment', $this->verifier($now)->verify(self::body('payment'), '1800000000', 'a19ce150f8158894e21fdd857b4b46a67b80a1881dc132206c4e4149878e7711')->arrayContent()['event_kind']);
         }
     }
 
     public function testEventKindCannotChooseWrongKey(): void
     {
-        $body = self::body('blocked_address_payment');
+        $body = self::body('blocked_deposit');
         $signature = hash_hmac('sha256', '1800000000.' . $body, 'test-payment-key');
         $this->expectException(WebhookException::class);
         $this->verifier()->verify($body, '1800000000', $signature);

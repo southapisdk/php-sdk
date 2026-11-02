@@ -14,4 +14,11 @@ abstract class Resource
     public function __construct(#[\SensitiveParameter] protected readonly Session $session)
     {
     }
+    protected function segment(#[\SensitiveParameter] string $value): string
+    {
+        if ($value === '' || $value === '.' || $value === '..') {
+            throw new \SouthApi\Exceptions\ConfigurationException('Invalid resource identifier.');
+        }
+        return rawurlencode($value);
+    }
 }

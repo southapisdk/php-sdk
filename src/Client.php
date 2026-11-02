@@ -7,7 +7,7 @@ namespace SouthApi;
 use SouthApi\Http\GuzzleTransport;
 use SouthApi\Http\Session;
 use SouthApi\Http\Transport;
-use SouthApi\Resources\{Balances, DepositAddresses, Payments, Rates, Settings, Transactions, Transfers, Withdrawals};
+use SouthApi\Resources\{Bills, Balances, DepositAddresses, Payments, Rates, Settings, Transactions, Transfers, Withdrawals};
 use SouthApi\Security\Credentials;
 use SouthApi\Security\Redacted;
 
@@ -15,6 +15,7 @@ final readonly class Client
 {
     use Redacted;
 
+    public Bills $bills;
     public Payments $payments;
     public DepositAddresses $depositAddresses;
     public Withdrawals $withdrawals;
@@ -30,6 +31,7 @@ final readonly class Client
         #[\SensitiveParameter] ?Transport $transport = null,
     ) {
         $session = new Session($credentials, $configuration, $transport ?? new GuzzleTransport($configuration));
+        $this->bills = new Bills($session);
         $this->payments = new Payments($session);
         $this->depositAddresses = new DepositAddresses($session);
         $this->withdrawals = new Withdrawals($session);

@@ -30,26 +30,33 @@ final class Session
     }
 
     /**
-     * @param array<string, mixed> $parameters
-     * @param array<string, string> $query
+     * @param array<string, mixed>|null $parameters
+     * @param array<string, string|int> $query
      */
-    public function call(string $method, #[\SensitiveParameter] string $path, KeyType $key, #[\SensitiveParameter] array $parameters = [], #[\SensitiveParameter] array $query = [], bool $xml = false): Result|string
+    public function call(string $method, #[\SensitiveParameter] string $path, KeyType $key, #[\SensitiveParameter] ?array $parameters = null, #[\SensitiveParameter] array $query = [], ?string $format = null): Result|string
     {
-        if (!preg_match('#\A/v[12]/[a-zA-Z0-9/_.%~-]+\z#', $path) || str_contains($path, '..')) {
+        if (!preg_match('#\A/api/v1/[a-zA-Z0-9/_.%~-]+\z#', $path) || str_contains($path, '..')) {
             throw new ConfigurationException('Invalid API endpoint.');
         }
-        Parameters::validate($path, $parameters);
+        if (!in_array($method, ['GET', 'POST', 'PUT'], true)) {
+            throw new ConfigurationException('Invalid HTTP method.');
+        }
+        Parameters::validate($method, $path, $parameters, $query);
         try {
-            $body = $method === 'GET' ? '' : json_encode($parameters === [] ? new \stdClass() : $parameters, JSON_THROW_ON_ERROR);
+            $body = $parameters === null ? '' : json_encode($parameters === [] ? new \stdClass() : $parameters, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             throw new ConfigurationException('Request parameters cannot be encoded as JSON.');
         }
-        $headers = ['Content-Type' => 'application/json', 'Accept' => $xml ? 'application/xml' : 'application/json'];
-        $headers += $this->credentials->headers($key, $body);
-        $url = $this->configuration->baseUrl . $path;
+        $target = $path;
         if ($query !== []) {
-            $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+            $target .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
         }
+        $headers = ['Accept' => $format ?? 'application/json'];
+        if ($parameters !== null) {
+            $headers['Content-Type'] = 'application/json; charset=utf-8';
+        }
+        $headers += $this->credentials->headers($key, $body, $method, $target);
+        $url = $this->configuration->baseUrl . $target;
         try {
             $response = $this->transport->send(new Request($method, $url, $headers, $body));
         } catch (ProtocolException) {
@@ -63,7 +70,7 @@ final class Session
         if ($response->status >= 300 && $response->status < 400) {
             throw new ProtocolException('API redirects are not accepted.');
         }
-        if ($xml && $response->status === 200) {
+        if ($format !== null && $response->status === 200) {
             return $response->body;
         }
         try {
@@ -74,34 +81,45 @@ final class Session
         if (!is_array($data)) {
             throw new ProtocolException('API returned an invalid response envelope.');
         }
-        if ($response->status !== 200) {
+        if (!in_array($response->status, [200, 201], true)) {
             $error = $data['error'] ?? null;
             $code = is_array($error) ? ($error['code'] ?? null) : null;
             $safeCode = is_string($code) && in_array($code, [
                 'authentication_failed', 'forbidden', 'not_found', 'validation_failed',
-                'business_rule_failed', 'internal_error',
+                'business_rule_failed', 'internal_error', 'bad_request', 'method_not_allowed', 'conflict', 'rate_limited',
             ], true) ? $code : 'api_error';
             throw new ApiException($response->status, $safeCode);
         }
-        if (($data['outcome'] ?? null) !== 0 || !array_key_exists('content', $data) || !is_array($data['content'])) {
+        if (($data['outcome'] ?? null) !== 0 || !array_key_exists('content', $data) || !($data['content'] === null || is_array($data['content']))) {
             throw new ProtocolException('API returned an invalid success envelope.');
         }
         return new Result($data['content']);
     }
 
-    /** @param array<string, mixed> $parameters */
-    public function json(string $method, #[\SensitiveParameter] string $path, KeyType $key, #[\SensitiveParameter] array $parameters = [], #[\SensitiveParameter] ?string $cursor = null): Result
+    /** @param array<string, mixed>|null $parameters
+     * @param array<string, string|int> $query
+     */
+    public function json(string $method, #[\SensitiveParameter] string $path, KeyType $key, #[\SensitiveParameter] ?array $parameters = null, #[\SensitiveParameter] array $query = []): Result
     {
-        $result = $this->call($method, $path, $key, $parameters, $cursor === null ? [] : ['cursor' => $cursor]);
+        $result = $this->call($method, $path, $key, $parameters, $query);
         if (!$result instanceof Result) {
             throw new ProtocolException('Expected a JSON response.');
         }
         return $result;
     }
 
-    /** @param array<string, mixed> $parameters */
-    public function page(#[\SensitiveParameter] string $path, KeyType $key, #[\SensitiveParameter] array $parameters = [], #[\SensitiveParameter] ?string $cursor = null): Page
+    /** @param array<string, string|int> $filters */
+    public function page(#[\SensitiveParameter] string $path, KeyType $key, #[\SensitiveParameter] array $filters = []): Page
     {
-        return new Page($this->json('POST', $path, $key, $parameters, $cursor)->content());
+        return new Page($this->json('GET', $path, $key, query: $filters)->arrayContent());
+    }
+
+    public function binary(string $path, KeyType $key, string $format): string
+    {
+        $result = $this->call('GET', $path, $key, format: $format);
+        if (!is_string($result)) {
+            throw new ProtocolException('Expected a binary response.');
+        }
+        return $result;
     }
 }

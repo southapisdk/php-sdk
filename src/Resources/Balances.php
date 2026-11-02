@@ -11,6 +11,6 @@ final class Balances extends Resource
 {
     public function get(): BalanceResult
     {
-        return new BalanceResult($this->session->json('POST', '/v1/balances', KeyType::Payment)->content());
+        return new BalanceResult($this->session->json('GET', '/api/v1/funds', KeyType::Payment)->arrayContent());
     }
 }

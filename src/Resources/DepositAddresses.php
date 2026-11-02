@@ -4,44 +4,68 @@ declare(strict_types=1);
 
 namespace SouthApi\Resources;
 
-use SouthApi\Responses\Page;
-use SouthApi\Responses\Result;
+use SouthApi\Responses\{Result, Page};
 use SouthApi\Security\KeyType;
 
-/** @phpstan-type Lookup array{deposit_address_reference?: string, merchant_order?: string} */
 final class DepositAddresses extends Resource
 {
-    /** @param array{asset_code: string, chain_code: string, merchant_order: string, callback_link?: string|null, referral_code?: string|null} $parameters */
+    /** @param array<string, mixed> $parameters Documented nested JSON payload. */
     public function create(#[\SensitiveParameter] array $parameters): Result
     {
-        return $this->session->json('POST', '/v1/deposit-addresses', KeyType::Payment, $parameters);
+        return $this->session->json('POST', '/api/v1/receiving-addresses', KeyType::Payment, $parameters, []);
     }
 
-    public function qrCode(#[\SensitiveParameter] string $depositAddressReference): Result
+    /** @param array<string, string|int> $filters */
+    public function search(#[\SensitiveParameter] array $filters = []): Page
     {
-        return $this->session->json('POST', '/v1/deposit-addresses/qr-code', KeyType::Payment, ['deposit_address_reference' => $depositAddressReference]);
+        return $this->session->page('/api/v1/receiving-addresses', KeyType::Payment, $filters);
     }
 
-    /** @param array{deposit_address_reference?: string, merchant_order?: string, force_refund?: bool|0|1|'0'|'1'} $parameters */
-    public function block(#[\SensitiveParameter] array $parameters): Result
+    public function lookup(#[\SensitiveParameter] string $reference): Result
     {
-        return $this->session->json('POST', '/v1/deposit-addresses/block', KeyType::Payment, $parameters);
+        return $this->session->json('GET', '/api/v1/receiving-addresses/' . $this->segment($reference), KeyType::Payment, null, []);
     }
 
-    /** @param array{destination: string, deposit_address_reference?: string, merchant_order?: string} $parameters */
-    public function refundBlocked(#[\SensitiveParameter] array $parameters): Result
+    public function lookupByOrder(#[\SensitiveParameter] string $merchantOrder): Result
     {
-        return $this->session->json('POST', '/v1/deposit-addresses/refund-blocked', KeyType::Payment, $parameters);
+        return $this->session->json('GET', '/api/v1/receiving-addresses/by-order/' . $this->segment($merchantOrder), KeyType::Payment, null, []);
     }
 
-    /** @param Lookup $parameters */
-    public function payments(#[\SensitiveParameter] array $parameters, #[\SensitiveParameter] ?string $cursor = null): Page
+    public function qrCode(#[\SensitiveParameter] string $reference): Result
     {
-        return $this->session->page('/v1/deposit-addresses/payments/search', KeyType::Payment, $parameters, $cursor);
+        return $this->session->json('GET', '/api/v1/receiving-addresses/' . $this->segment($reference) . '/qr-code', KeyType::Payment, null, []);
     }
 
-    public function search(#[\SensitiveParameter] ?string $cursor = null): Page
+    /** @param array<string, string|int> $filters */
+    public function payments(#[\SensitiveParameter] string $reference, #[\SensitiveParameter] array $filters = []): Page
     {
-        return $this->session->page('/v1/deposit-addresses/search', KeyType::Payment, [], $cursor);
+        return $this->session->page('/api/v1/receiving-addresses/' . $this->segment($reference) . '/charges', KeyType::Payment, $filters);
     }
+
+    public function block(#[\SensitiveParameter] string $reference, bool $forceRefund = false): Result
+    {
+        return $this->session->json('POST', '/api/v1/receiving-addresses/' . $this->segment($reference) . '/block', KeyType::Payment, ['force_refund' => $forceRefund], []);
+    }
+
+    public function refundBlocked(#[\SensitiveParameter] string $reference, #[\SensitiveParameter] string $destination): Result
+    {
+        return $this->session->json('POST', '/api/v1/receiving-addresses/' . $this->segment($reference) . '/refund-blocked', KeyType::Payment, ['destination' => $destination], []);
+    }
+
+    /** @param array<string, string|int> $filters */
+    public function paymentsByOrder(#[\SensitiveParameter] string $merchantOrder, #[\SensitiveParameter] array $filters = []): Page
+    {
+        return $this->session->page('/api/v1/receiving-addresses/by-order/' . $this->segment($merchantOrder) . '/charges', KeyType::Payment, $filters);
+    }
+
+    public function blockByOrder(#[\SensitiveParameter] string $merchantOrder, bool $forceRefund = false): Result
+    {
+        return $this->session->json('POST', '/api/v1/receiving-addresses/by-order/' . $this->segment($merchantOrder) . '/block', KeyType::Payment, ['force_refund' => $forceRefund], []);
+    }
+
+    public function refundBlockedByOrder(#[\SensitiveParameter] string $merchantOrder, #[\SensitiveParameter] string $destination): Result
+    {
+        return $this->session->json('POST', '/api/v1/receiving-addresses/by-order/' . $this->segment($merchantOrder) . '/refund-blocked', KeyType::Payment, ['destination' => $destination], []);
+    }
+
 }

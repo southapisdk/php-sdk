@@ -28,7 +28,7 @@ final class ContractTest extends TestCase
     #[DataProvider('operations')]
     public function testEveryDocumentedOperation(array $operation): void
     {
-        $transport = new RecordingTransport(new Response(200, $operation['response']));
+        $transport = new RecordingTransport(new Response($operation['status'], $operation['response']));
         $client = new Client(new Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key', 'test-payout-key', static fn (): int => 1_800_000_000), transport: $transport);
         $result = ($operation['invoke'])($client);
         self::assertCount(1, $transport->requests);
@@ -37,16 +37,20 @@ final class ContractTest extends TestCase
         self::assertSame('https://api.southapi.com' . $operation['path'] . ($operation['query'] === '' ? '' : '?' . $operation['query']), $request->url);
         self::assertSame($operation['body'], $request->body);
         if ($operation['key'] === 'none') {
-            self::assertArrayNotHasKey('merchant', $request->headers);
+            self::assertArrayNotHasKey('X-Merchant', $request->headers);
             self::assertArrayNotHasKey('X-Signature', $request->headers);
             self::assertArrayNotHasKey('X-Timestamp', $request->headers);
         } else {
-            self::assertSame('00000000-0000-4000-8000-000000000000', $request->headers['merchant']);
+            self::assertSame('00000000-0000-4000-8000-000000000000', $request->headers['X-Merchant']);
             $key = $operation['key'] === 'payment' ? 'test-payment-key' : 'test-payout-key';
             self::assertSame('1800000000', $request->headers['X-Timestamp']);
-            self::assertSame(hash_hmac('sha256', '1800000000.' . $operation['body'], $key), $request->headers['X-Signature']);
+            self::assertSame(hash_hmac('sha256', '1800000000.' . $operation['method'] . '.' . $operation['path'] . ($operation['query'] === '' ? '' : '?' . $operation['query']) . '.' . $operation['body'], $key), $request->headers['X-Signature']);
         }
         self::assertArrayNotHasKey('sign', $request->headers);
+        self::assertArrayNotHasKey('merchant', $request->headers);
+        if ($request->body !== '') {
+            self::assertSame('application/json; charset=utf-8', $request->headers['Content-Type']);
+        }
         if (is_string($result)) {
             self::assertSame($operation['response'], $result);
         } else {
@@ -56,11 +60,10 @@ final class ContractTest extends TestCase
             self::assertSame($expected['content'], $result->content());
             if ($operation['page']) {
                 self::assertInstanceOf(Page::class, $result);
-                $content = $result->content();
+                $content = $result->arrayContent();
                 self::assertIsArray($content['pagination']);
                 self::assertSame($content['pagination']['next_cursor'], $result->nextCursor);
-                self::assertSame($content['pagination']['has_more'], $result->hasPages);
-                self::assertSame($result->nextCursor !== null && $result->nextCursor !== '', $result->hasMore);
+                self::assertSame($content['pagination']['has_more'], $result->hasMore);
                 self::assertSame($content['entries'], $result->entries());
             }
         }
@@ -68,8 +71,8 @@ final class ContractTest extends TestCase
 
     public function testInventoryContainsExactlyDocumentedSections(): void
     {
-        self::assertCount(32, Operations::all());
+        self::assertCount(48, Operations::all());
         self::assertArrayHasKey('rates-xml', Operations::all());
-        self::assertSame('payment', Operations::all()['refund-blocked-wallet']['key']);
+        self::assertSame('payment', Operations::all()['address-refund']['key']);
     }
 }

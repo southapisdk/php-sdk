@@ -6,76 +6,138 @@ namespace SouthApi\Http;
 
 use SouthApi\Exceptions\ConfigurationException;
 
-/** Minimal wire validation; business rules and detailed limits remain server-owned. */
+/** Minimal documented shape validation; business rules remain server-owned. */
 final class Parameters
 {
-    /** @param array<string, mixed> $parameters */
-    public static function validate(string $path, #[\SensitiveParameter] array $parameters): void
+    /** @param array<string, mixed>|null $parameters
+     * @param array<string, string|int> $query
+     */
+    public static function validate(string $method, string $path, #[\SensitiveParameter] ?array $parameters, #[\SensitiveParameter] array $query): void
     {
-        $required = match ($path) {
-            '/v1/payments' => ['display_total', 'asset_code', 'merchant_order'],
-            '/v1/withdrawals' => ['display_total', 'asset_code', 'merchant_order', 'destination', 'fee_deducted'],
-            '/v1/withdrawals/calculate' => ['display_total', 'asset_code', 'destination', 'fee_deducted'],
-            '/v1/deposit-addresses' => ['asset_code', 'chain_code', 'merchant_order'],
-            '/v1/payments/refund' => ['destination', 'fee_deducted'],
-            '/v1/deposit-addresses/refund-blocked' => ['destination'],
-            '/v1/payments/qr-code' => ['payment_reference'],
-            '/v1/deposit-addresses/qr-code' => ['deposit_address_reference'],
-            '/v1/transfers/to-personal', '/v1/transfers/to-business' => ['display_total', 'asset_code'],
-            '/v1/payment-discounts/update' => ['asset_code', 'chain_code', 'discount_rate'],
-            default => [],
-        };
-        foreach ($required as $field) {
-            if (!array_key_exists($field, $parameters) || $parameters[$field] === null || $parameters[$field] === '') {
-                throw new ConfigurationException('A required API parameter is missing.');
+        if ($method === 'GET' && $parameters !== null) {
+            self::invalid();
+        }
+        foreach ($query as $key => $value) {
+            if ($key === 'page_size') {
+                if (!is_int($value) || $value < 1 || $value > 100) {
+                    self::invalid();
+                }
+            } elseif (!is_string($value)) {
+                self::invalid();
             }
         }
-        $identifiers = match ($path) {
-            '/v1/payments/lookup', '/v1/payments/mark-paid', '/v1/payments/refund' => ['payment_reference', 'merchant_order'],
-            '/v1/payments/callback/retry', '/v2/payments/callback/retry' => ['payment_reference', 'merchant_order', 'transaction_hash'],
-            '/v1/withdrawals/lookup' => ['withdrawal_reference', 'merchant_order'],
-            '/v1/deposit-addresses/block', '/v1/deposit-addresses/refund-blocked', '/v1/deposit-addresses/payments/search' => ['deposit_address_reference', 'merchant_order'],
+        $allowed = ['cursor', 'page_size', 'created_from', 'created_to'];
+        if (in_array($path, ['/api/v1/charges', '/api/v1/cashouts'], true)) {
+            $allowed[] = 'merchant_order';
+        }
+        if ($path === '/api/v1/bills') {
+            $allowed = array_merge($allowed, ['phase', 'recipient', 'query', 'expires_from', 'expires_to']);
+        }
+        if (array_diff(array_keys($query), $allowed) !== []) {
+            self::invalid();
+        }
+        foreach (['created_from', 'created_to', 'expires_from', 'expires_to'] as $key) {
+            if (isset($query[$key]) && (!is_string($query[$key]) || !preg_match('/\A\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?\z/', $query[$key]))) {
+                self::invalid();
+            }
+        }
+        if ($method === 'GET') {
+            return;
+        }
+        $required = match ($path) {
+            '/api/v1/charges' => ['merchant_order', 'pricing.display_total', 'pricing.asset_code'],
+            '/api/v1/cashouts' => ['merchant_order', 'amount.display_total', 'amount.asset_code', 'chain.destination', 'fee_deducted'],
+            '/api/v1/cashouts/quote' => ['amount.display_total', 'amount.asset_code', 'chain.destination', 'fee_deducted'],
+            '/api/v1/receiving-addresses' => ['merchant_order', 'asset.asset_code', 'asset.chain_code'],
+            '/api/v1/fund-transfers' => ['direction', 'amount.display_total', 'amount.asset_code'],
+            '/api/v1/charges/callbacks' => ['transaction_hash'],
+            '/api/v1/bills' => ['subject', 'category', 'pricing.asset_code'],
             default => [],
         };
-        if ($identifiers !== []) {
-            $found = false;
-            foreach ($identifiers as $field) {
-                if (isset($parameters[$field]) && is_string($parameters[$field]) && $parameters[$field] !== '') {
-                    $found = true;
+        if (str_ends_with($path, '/refunds')) {
+            $required = ['destination', 'fee_deducted'];
+        } elseif (str_ends_with($path, '/refund-blocked')) {
+            $required = ['destination'];
+        } elseif (str_starts_with($path, '/api/v1/charge-discounts/')) {
+            $required = ['discount_rate'];
+        }
+        $values = $parameters ?? [];
+        foreach ($required as $field) {
+            $value = self::value($values, $field);
+            if ($value === null || $value === '') {
+                self::invalid();
+            }
+        }
+        if ($path === '/api/v1/cashouts/quote' && (isset($values['merchant_order']) || isset($values['links']) || isset($values['simulation']) || self::value($values, 'chain.memo') !== null || self::value($values, 'amount.source_asset') !== null)) {
+            self::invalid();
+        }
+        self::walk($values, $path);
+        if ($path === '/api/v1/fund-transfers' && !in_array($values['direction'] ?? null, ['to_personal', 'to_business'], true)) {
+            self::invalid();
+        }
+    }
+
+    /** @param array<array-key, mixed> $values */
+    private static function walk(#[\SensitiveParameter] array $values, string $path, string $prefix = ''): void
+    {
+        foreach ($values as $key => $value) {
+            $field = $prefix === '' ? (string) $key : $prefix . '.' . $key;
+            if (in_array($field, ['pricing', 'settlement', 'checkout', 'links', 'customer', 'simulation', 'amount', 'chain', 'asset', 'refund', 'contacts', 'recipient'], true) && $value !== null && !is_array($value)) {
+                self::invalid();
+            }
+            if (is_array($value)) {
+                self::walk($value, $path, $field);
+                continue;
+            }
+            if ($value === null) {
+                continue;
+            }
+            if (in_array($key, ['display_total', 'pre_tax_total', 'tax_total', 'unit_price', 'payment_tolerance_rate'], true)) {
+                if (!is_string($value) || strlen($value) > 40 || !preg_match('/\A\d+(?:\.\d+)?\z/', $value)) {
+                    self::invalid();
                 }
             }
-            if (!$found) {
-                throw new ConfigurationException('An API object identifier is required.');
+            if (in_array($key, ['simulated_success', 'simulated_failure', 'partial_allowed', 'refresh_existing', 'force_refund', 'recipient_details_required', 'use_merchant_contact'], true) || ($key === 'fee_deducted' && $path !== '/api/v1/charges')) {
+                if (!is_bool($value)) {
+                    self::invalid();
+                }
+            }
+            if ($path === '/api/v1/charges' && $field === 'pricing.fee_deducted' && (!is_int($value) || $value < 0 || $value > 100)) {
+                self::invalid();
+            }
+            if ($key === 'merchant_order') {
+                $max = $path === '/api/v1/cashouts' ? 100 : 128;
+                if (!is_string($value) || !preg_match('/\A[\pL\pM\pN_-]{1,' . $max . '}\z/u', $value)) {
+                    self::invalid();
+                }
+            }
+            if ($key === 'destination' && (!is_string($value) || !preg_match('/\A[\pL\pM\pN_-]{10,128}\z/u', $value))) {
+                self::invalid();
+            }
+            if ($key === 'discount_rate') {
+                $max = $path === '/api/v1/charges' ? 90 : 100;
+                if (!is_int($value) || $value < -99 || $value > $max) {
+                    self::invalid();
+                }
             }
         }
-        if (isset($parameters['destination']) && (!is_string($parameters['destination'])
-            || !preg_match('/\A[\pL\pM\pN_-]{10,128}\z/u', $parameters['destination']))) {
-            throw new ConfigurationException('Destination must contain 10 to 128 letters, digits, underscores or dashes.');
+    }
+
+    /** @param array<string, mixed> $values */
+    private static function value(array $values, string $path): mixed
+    {
+        $value = $values;
+        foreach (explode('.', $path) as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return null;
+            }
+            $value = $value[$key];
         }
-        if (isset($parameters['merchant_order'])) {
-            $max = in_array($path, ['/v1/payments/refund', '/v1/deposit-addresses/block', '/v1/deposit-addresses/refund-blocked', '/v1/deposit-addresses/payments/search'], true) ? 100 : 128;
-            if (!is_string($parameters['merchant_order'])
-                || !preg_match('/\A[\pL\pM\pN_-]{1,' . $max . '}\z/u', $parameters['merchant_order'])) {
-                throw new ConfigurationException('Order identifier contains unsupported characters or length.');
-            }
-        }
-        foreach (['simulated_success', 'simulated_failure', 'partial_allowed', 'refresh_existing', 'force_refund', 'fee_deducted'] as $field) {
-            if (!array_key_exists($field, $parameters)) {
-                continue;
-            }
-            if ($field === 'fee_deducted' && $path === '/v1/payments') {
-                continue; // This operation uses an integer percentage rather than a boolean.
-            }
-            $value = $parameters[$field];
-            if ($value === null && in_array($field, ['simulated_success', 'simulated_failure', 'partial_allowed', 'refresh_existing'], true)) {
-                continue;
-            }
-            if (!in_array($value, [true, false, 0, 1, '0', '1'], true)) {
-                throw new ConfigurationException('Boolean parameters must use true, false, 0, 1, "0" or "1".');
-            }
-        }
-        if (isset($parameters['display_total']) && !is_string($parameters['display_total'])) {
-            throw new ConfigurationException('Monetary amounts must be decimal strings.');
-        }
+        return $value;
+    }
+
+    private static function invalid(): never
+    {
+        throw new ConfigurationException('Request parameters do not match the API contract.');
     }
 }

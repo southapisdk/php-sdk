@@ -28,7 +28,7 @@ final class Credentials
     }
 
     /** @return array<string, string> */
-    public function headers(KeyType $type, #[\SensitiveParameter] string $body): array
+    public function headers(KeyType $type, #[\SensitiveParameter] string $body, string $method, #[\SensitiveParameter] string $target): array
     {
         if ($type === KeyType::None) {
             return [];
@@ -42,9 +42,9 @@ final class Credentials
         }
         $timestamp = (string) $now;
         return [
-            'merchant' => $this->merchantId,
+            'X-Merchant' => $this->merchantId,
             'X-Timestamp' => $timestamp,
-            'X-Signature' => $this->signature($type, $timestamp, $body),
+            'X-Signature' => hash_hmac('sha256', $timestamp . '.' . strtoupper($method) . '.' . $target . '.' . $body, $this->key($type)),
         ];
     }
 

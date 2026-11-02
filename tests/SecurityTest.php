@@ -25,8 +25,8 @@ final class SecurityTest extends TestCase
     public function testSigningVectorsAreIndependent(): void
     {
         $credentials = $this->credentials();
-        self::assertSame('07ea66d911ac2849e4f36d0f767671121c26f9d8bc8287866345e1213645c6c3', $credentials->headers(KeyType::Payment, '{}')['X-Signature']);
-        self::assertSame('7eb09d054552c4af969a55f380e11a7b7de78f097e2b579e604353086c7e1700', $credentials->headers(KeyType::Payment, '')['X-Signature']);
+        self::assertSame('90c0d9bdf33996274d8331060ac51d509215799174e9443534947b33649c6b25', $credentials->headers(KeyType::Payment, '{}', 'POST', '/api/v1/charges')['X-Signature']);
+        self::assertSame('fe7c6f218f70f60db5207316632ed49cd7793da1d0439d8c40f95eca18d180bc', $credentials->headers(KeyType::Payment, '', 'GET', '/api/v1/funds')['X-Signature']);
     }
 
     public function testEachRequestUsesCurrentTimestamp(): void
@@ -55,13 +55,13 @@ final class SecurityTest extends TestCase
         });
         $transport = new RecordingTransport();
         (new Client($credentials, transport: $transport))->rates->all();
-        self::assertSame(['Content-Type' => 'application/json', 'Accept' => 'application/json'], $transport->requests[0]->headers);
+        self::assertSame(['Accept' => 'application/json'], $transport->requests[0]->headers);
     }
 
     public function testDefaultClockUsesCurrentUnixSeconds(): void
     {
         $before = time();
-        $headers = (new Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key'))->headers(KeyType::Payment, '{}');
+        $headers = (new Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key'))->headers(KeyType::Payment, '{}', 'POST', '/api/v1/charges');
         self::assertGreaterThanOrEqual($before, (int) $headers['X-Timestamp']);
         self::assertLessThanOrEqual(time(), (int) $headers['X-Timestamp']);
         self::assertMatchesRegularExpression('/\A[0-9a-f]{64}\z/', $headers['X-Signature']);
@@ -72,10 +72,10 @@ final class SecurityTest extends TestCase
     {
         $transport = new RecordingTransport();
         $client = new Client($this->credentials(), transport: $transport);
-        $client->payments->create(['display_total' => '1.00000001', 'asset_code' => 'USD', 'merchant_order' => 'test-order-1', 'metadata' => 'Привет/x']);
-        $body = '{"display_total":"1.00000001","asset_code":"USD","merchant_order":"test-order-1","metadata":"\u041f\u0440\u0438\u0432\u0435\u0442\/x"}';
+        $client->payments->create(['pricing' => ['display_total' => '1.00000001', 'asset_code' => 'USD'], 'merchant_order' => 'test-order-1', 'metadata' => 'Привет/x']);
+        $body = '{"pricing":{"display_total":"1.00000001","asset_code":"USD"},"merchant_order":"test-order-1","metadata":"\u041f\u0440\u0438\u0432\u0435\u0442\/x"}';
         self::assertSame($body, $transport->requests[0]->body);
-        self::assertSame(hash_hmac('sha256', '1800000000.' . $body, 'test-payment-key'), $transport->requests[0]->headers['X-Signature']);
+        self::assertSame(hash_hmac('sha256', '1800000000.POST./api/v1/charges.' . $body, 'test-payment-key'), $transport->requests[0]->headers['X-Signature']);
     }
 
     public function testMissingCredentialsNeverSend(): void
@@ -105,7 +105,7 @@ final class SecurityTest extends TestCase
     {
         $transport = new RecordingTransport();
         (new Client(transport: $transport))->rates->get('USDT/https://other.example?q=x');
-        self::assertSame('https://api.southapi.com/v1/rates/USDT%2Fhttps%3A%2F%2Fother.example%3Fq%3Dx', $transport->requests[0]->url);
+        self::assertSame('https://api.southapi.com/api/v1/fx-rates/USDT%2Fhttps%3A%2F%2Fother.example%3Fq%3Dx', $transport->requests[0]->url);
         self::assertArrayNotHasKey('sign', $transport->requests[0]->headers);
         self::assertArrayNotHasKey('X-Signature', $transport->requests[0]->headers);
         self::assertArrayNotHasKey('X-Timestamp', $transport->requests[0]->headers);
@@ -115,12 +115,12 @@ final class SecurityTest extends TestCase
     {
         $transport = new RecordingTransport(new Response(200, '{"outcome":0,"content":{"entries":[],"pagination":{"item_count":0,"has_more":true,"next_cursor":"https://other.example/","previous_cursor":null,"page_size":15}}}'));
         $client = new Client($this->credentials(), transport: $transport);
-        $first = $client->payments->search(['created_from' => '2026-01-01 00:00:00']);
+        $first = $client->payments->search(['created_from' => '2026-01-01']);
         self::assertCount(1, $transport->requests);
-        $client->payments->search(['created_from' => '2026-01-01 00:00:00'], $first->nextCursor);
+        $client->payments->search(['created_from' => '2026-01-01', 'cursor' => $first->nextCursor ?? '']);
         self::assertCount(2, $transport->requests);
         self::assertSame($transport->requests[0]->body, $transport->requests[1]->body);
-        self::assertSame('https://api.southapi.com/v1/payments/search?cursor=https%3A%2F%2Fother.example%2F', $transport->requests[1]->url);
+        self::assertSame('https://api.southapi.com/api/v1/charges?created_from=2026-01-01&cursor=https%3A%2F%2Fother.example%2F', $transport->requests[1]->url);
     }
 
     /** @return iterable<string, array{Response, class-string<SdkException>}> */
@@ -222,7 +222,7 @@ final class SecurityTest extends TestCase
         $session = new Session($this->credentials(), new Configuration(), $transport);
         foreach ([[], ['display_total' => 0.1, 'asset_code' => 'USD', 'merchant_order' => 'test-order-1']] as $parameters) {
             try {
-                $session->json('POST', '/v1/payments', KeyType::Payment, $parameters);
+                $session->json('POST', '/api/v1/charges', KeyType::Payment, $parameters);
                 self::fail('Invalid parameters accepted.');
             } catch (ConfigurationException) {
                 self::assertCount(0, $transport->requests);

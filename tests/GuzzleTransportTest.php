@@ -29,8 +29,8 @@ final class GuzzleTransportTest extends TestCase
         (new Client(new Credentials('00000000-0000-4000-8000-000000000000', 'test-payment-key', clock: static fn (): int => 1_800_000_000), $configuration, $transport))->payments->options();
         self::assertIsArray($history);
         self::assertCount(1, $history);
-        self::assertSame('{}', (string) $history[0]['request']->getBody());
-        self::assertSame('07ea66d911ac2849e4f36d0f767671121c26f9d8bc8287866345e1213645c6c3', $history[0]['request']->getHeaderLine('X-Signature'));
+        self::assertSame('', (string) $history[0]['request']->getBody());
+        self::assertSame('5e45cfed07c0eacc9604c1009dbaaf55346ab3c05bc008166cd7da727d810011', $history[0]['request']->getHeaderLine('X-Signature'));
         self::assertSame('1800000000', $history[0]['request']->getHeaderLine('X-Timestamp'));
         self::assertFalse($history[0]['request']->hasHeader('sign'));
         self::assertTrue($history[0]['options']['verify']);
@@ -58,7 +58,7 @@ final class GuzzleTransportTest extends TestCase
         $mock = new MockHandler([new HttpResponse(200, [], str_repeat('x', 65))]);
         $transport = new GuzzleTransport(new Configuration(maxResponseBytes: 64), new HttpClient(['handler' => $mock]));
         $this->expectException(ProtocolException::class);
-        $transport->send(new Request('GET', 'https://api.southapi.com/v2/rates', [], ''));
+        $transport->send(new Request('GET', 'https://api.southapi.com/api/v1/fx-rates', [], ''));
     }
 
     public function testForeignDestinationRejectedBeforeHttp(): void
@@ -66,7 +66,7 @@ final class GuzzleTransportTest extends TestCase
         $mock = new MockHandler([new HttpResponse(200)]);
         $transport = new GuzzleTransport(new Configuration(), new HttpClient(['handler' => $mock]));
         try {
-            $transport->send(new Request('GET', 'https://api.southapi.com.attacker.example/v2/rates', [], ''));
+            $transport->send(new Request('GET', 'https://api.southapi.com.attacker.example/api/v1/fx-rates', [], ''));
             self::fail('Foreign origin accepted.');
         } catch (TransportException) {
             self::assertSame(1, $mock->count());
@@ -77,13 +77,13 @@ final class GuzzleTransportTest extends TestCase
         $mock = new MockHandler([new HttpResponse(200, [], str_repeat('x', 65))]);
         $transport = new GuzzleTransport(new Configuration(maxResponseBytes: 64), new HttpClient(['handler' => HandlerStack::create($mock)]));
         $this->expectException(ProtocolException::class);
-        $transport->send(new Request('GET', 'https://api.southapi.com/v2/rates', [], ''));
+        $transport->send(new Request('GET', 'https://api.southapi.com/api/v1/fx-rates', [], ''));
     }
 
     public function testFactoryBlocksSecondAttemptBeforeCreatingCurlHandle(): void
     {
         $factory = new \SouthApi\Http\SingleAttemptCurlFactory();
-        $request = new \GuzzleHttp\Psr7\Request('POST', 'https://api.southapi.com/v1/balances', [], '{}');
+        $request = new \GuzzleHttp\Psr7\Request('POST', 'https://api.southapi.com/api/v1/funds', [], '{}');
         $handle = $factory->create($request, []);
         $factory->release($handle);
         $this->expectException(TransportException::class);

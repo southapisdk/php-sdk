@@ -1,224 +1,271 @@
 # SouthAPI PHP merchant SDK
 
-Standalone PHP 8.2+ client for the current SouthAPI merchant API. Requires Composer and
-JSON and cURL support. No framework, database, environment-file loader or installation
-hooks are required. The package identity is provisional and its license is
-proprietary; external publication requires the owner's release decision.
+Standalone PHP 8.2+ client for the approved Astra Merchant API v1 contract.
+All requests use `/api/v1`. This release changes method arguments, payloads,
+authentication and response shapes; existing integrations must migrate together
+with the API. Old API routes and legacy webhook formats are not supported.
 
-## Install and configure
+## Install through Composer
 
-Install the reviewed package from the distribution supplied to you, then load
-`vendor/autoload.php`. The provisional Composer name is `southapi/merchant-sdk`;
-availability in a public registry is not implied.
+Requirements: PHP 8.2+, PHP extensions `curl` and `json`, and Composer.
+`unzip` is a separate operating-system utility used to unpack the supplied archive.
+The package is proprietary; its Composer name is `southapi/merchant-sdk`.
+Public registry availability is not implied.
 
-```php
-use SouthApi\Client;
-use SouthApi\Security\Credentials;
+In your application's directory, extract the supplied ZIP **outside the public
+web directory**:
 
-// Obtain these from your application's secret store, never from browser input.
-$client = new Client(new Credentials($merchantId, $paymentKey, $payoutKey));
-$result = $client->payments->create([
-    'display_total' => '25.00000001',
-    'asset_code' => 'USD',
-    'merchant_order' => 'your-unique-order-id',
-    'callback_link' => 'https://merchant.example/webhooks/southapi',
-]);
-$content = $result->content(); // sensitive merchant data; do not log indiscriminately
+```sh
+mkdir -p packages/south-api-sdk
+unzip /path/to/south-api-sdk.zip -d packages/south-api-sdk
+composer config repositories.southapi path ./packages/south-api-sdk
+composer require southapi/merchant-sdk:@dev
 ```
 
-A payment-only integration can omit the payout key. Public rates work with
-`new Client()` and never send merchant, timestamp or signature headers. The default origin is
-`https://api.southapi.com`. An explicit trusted HTTPS origin can be configured
-with `SouthApi\Configuration`; user-controlled input must never select it.
+Keep `packages/south-api-sdk` available during subsequent Composer installs and
+deployments. Commit your application's Composer manifest and lock file according
+to your deployment policy. To install a replacement archive, replace the package
+contents and run `composer update southapi/merchant-sdk`. Test your integration
+before deploying contract changes.
+
+Load your application's `vendor/autoload.php`. Supply values from your application's
+secret store or server environment; these variable names are examples, not SDK requirements:
+
+```php
+require __DIR__ . '/vendor/autoload.php';
+
+use SouthApi\Client;
+use SouthApi\Configuration;
+use SouthApi\Security\Credentials;
+
+$merchantId = getenv('SOUTHAPI_MERCHANT_ID');
+$paymentKey = getenv('SOUTHAPI_PAYMENT_KEY');
+$baseUrl = getenv('SOUTHAPI_BASE_URL');
+$payoutKey = getenv('SOUTHAPI_PAYOUT_KEY');
+if (!$merchantId || !$paymentKey || !$baseUrl) {
+    throw new RuntimeException('Missing API configuration.');
+}
+$client = new Client(
+    new Credentials($merchantId, $paymentKey, $payoutKey ?: null),
+    new Configuration(baseUrl: $baseUrl),
+);
+```
+
+`SOUTHAPI_BASE_URL` is the trusted HTTPS origin issued to you, **without `/api/v1`
+or another path**. The SDK adds the prefix. Configure variables in your deployment
+secret store, service configuration or application's environment loader. The SDK
+does not read `.env` automatically. Never place keys in browser code, URLs, version
+control or publicly accessible files. Payment-only integrations can omit the payout
+key. Public rates do not need credentials. If no configuration is supplied, the
+origin defaults to `https://api.southapi.com`; use your assigned host explicitly.
 
 ## Operations
 
-| Resource | Methods |
-|---|---|
-| `$client->payments` | `create`, `lookup`, `search`, `markPaid`, `refund`, `qrCode`, `retryCallback`, `retryCallbackV2`, `options` |
-| `$client->depositAddresses` | `create`, `qrCode`, `block`, `refundBlocked`, `payments`, `search` |
-| `$client->withdrawals` | `create`, `calculate`, `lookup`, `search`, `options`, `priority` |
-| `$client->transfers` | `toPersonal`, `toBusiness` |
-| `$client->balances` | `get` |
-| `$client->transactions` | `search` |
-| `$client->rates` | `get`, `all`, `dictionary`, `xml` |
-| `$client->settings` | `paymentAssets`, `discounts`, `setDiscount` |
+Existing PHP resource names remain, while their HTTP routes use the new names.
+`ref` below means the corresponding resource UUID; order means `merchant_order`.
+All array bodies use the documented **nested** fields; no flattening or conversion
+from previous request shapes takes place.
 
-Array parameters use the API's public field names; source PHPDoc describes their
-shapes. Amounts must be decimal **strings**, never floats. Values and nullable
-response fields are preserved. Unknown response fields are accepted. JSON methods
-return `Result`, with the API's `content` available through `content()`; list
-methods return `Page`. XML rates return raw text without parsing XML entities.
-The SDK validates required identifiers, accepted boolean representations, and
-current destination/order syntax before sending. Detailed business decisions
-remain server-owned. Destination strings for withdrawals, calculations and
-refunds must have 10–128 Unicode letters, numbers, combining marks, underscores
-or dashes; punctuation such as `:` and `.` is rejected. Pass memo/tag separately
-where the operation supports it. Order IDs follow the same character rule, with
-up to 128 characters, or 100 for refund/block/deposit-payment lookup operations.
-Boolean parameters accept `true`, `false`, `0`, `1`, `"0"`, `"1"`; `"true"` and
-`"false"` are rejected. For invoice creation `fee_deducted` is an integer
-percentage, rather than a boolean.
+| Resource | Methods | HTTP resource |
+|---|---|---|
+| `payments` | `create(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `qrCode(ref)`, `retryCallback(ref)`, `retryCallbackByTransaction(hash)`, `markPaid(ref)`, `refund(ref, body)`, `options()` | charges, charge-options |
+| `depositAddresses` | `create(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `qrCode(ref)`, `payments(ref, filters)`, `paymentsByOrder(order, filters)`, `block(ref, forceRefund)`, `blockByOrder(order, forceRefund)`, `refundBlocked(ref, destination)`, `refundBlockedByOrder(order, destination)` | receiving-addresses |
+| `withdrawals` | `create(body)`, `calculate(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `cancel(ref)`, `cancelByOrder(order)`, `options()`, `priority(asset, chain)` | cashouts, cashout-options |
+| `bills` | `create(body)`, `search(filters)`, `lookup(ref)`, `pdf(ref)`, `deliver(ref, body)`, `retryDelivery(ref, body)`, `disable(ref)`, `extend(ref)` | bills |
+| `balances` | `get()` | funds |
+| `transactions` | `search(filters)` | ledger |
+| `transfers` | `toPersonal(amount, asset)`, `toBusiness(amount, asset)` | fund-transfers |
+| `settings` | `paymentAssets()`, `discounts()`, `setDiscount(asset, chain, rate)` | settings/charge-assets, charge-discounts |
+| `rates` | `all()`, `get(asset)`, `xml()` | fx-rates |
 
-`payments->retryCallback` uses the v1 callback endpoint; `retryCallbackV2` exposes
-the existing v2 operation with the same payload and payment key. Invoice and
-withdrawal creation accept nullable `simulated_success` / `simulated_failure`
-flags using the boolean representations above; they are sent only when supplied.
-
-Balances return `BalanceResult`: `business()` and `personal()` expose wallet
-lists. `content()` preserves the actual server envelope, a list containing one
-object: `content()[0]['balances']`. Wallet groups absent from an empty server
-response are returned as empty lists by the convenience accessors.
+Lists and lookups use GET, settings replacement uses PUT, creation and actions
+use POST. Reference and order path segments are URL-encoded. Refund and mark-paid
+require the payment UUID: look up the payment by order first if necessary.
+Receiving-address QR is available by UUID only. Cancellation can return 404 when
+not available to your account; the SDK does not bypass API permissions.
 
 ```php
-$payment = $client->payments->lookup(['merchant_order' => 'your-unique-order-id']);
-$tiers = $client->withdrawals->priority('USDT', 'tron');
-$transfer = $client->transfers->toPersonal('10.00000001', 'USDT');
-$refund = $client->payments->refund([
-    'merchant_order' => 'your-unique-order-id',
+$payment = $client->payments->create([
+    'merchant_order' => 'shop-order-1042',
+    'pricing' => ['display_total' => '25.00000001', 'asset_code' => 'USD'],
+    'settlement' => ['chain_code' => 'TRON'],
+    'checkout' => ['partial_allowed' => false],
+    'links' => ['callback_link' => 'https://merchant.example/webhooks/southapi'],
+]);
+$content = $payment->arrayContent();
+$lookup = $client->payments->lookupByOrder('shop-order-1042');
+
+$withdrawal = $client->withdrawals->create([
+    'merchant_order' => 'shop-payout-501',
+    'amount' => ['display_total' => '10.00', 'asset_code' => 'USDT'],
+    'chain' => ['chain_code' => 'TRON', 'destination' => $customerAddress],
+    'fee_deducted' => true,
+]);
+$refund = $client->payments->refund($paymentReference, [
     'destination' => $customerAddress,
     'fee_deducted' => true,
+    'refund' => ['display_total' => '5.00'],
 ]);
 ```
 
-A create response confirms creation, not payment completion. Use the documented
-status and `finished` field from lookup/webhooks to decide when payment is final.
+Amounts and rates are decimal strings, never floats. Flags are PHP booleans.
+Payment `pricing.fee_deducted` is an integer percentage (0–100); payout and refund
+`fee_deducted` are booleans. Payout orders have 1–100 characters, payment orders
+1–128, using letters, numbers, combining marks, underscores or dashes.
+Destinations have 10–128 characters with the same character rule; pass memo
+separately where supported. Priority values come from `withdrawals->priority()`;
+the SDK sends the chosen value unchanged. Quote payloads exclude `merchant_order`,
+`links`, `simulation`, `chain.memo` and `amount.source_asset`.
+The SDK checks basic input shapes; the API remains responsible for business
+validation, account permissions and supported assets.
 
-## Pagination and retries
+## Responses, pagination and retries
+
+JSON operations return `Result`. `content()` preserves the API content as an
+array or `null`; `arrayContent()` requires an array and throws for null. HTTP 200
+and 201 are supported. Nested amounts, dates, nullable fields and unknown response
+fields are preserved without numeric or date conversion. Actions without a result
+can return `content: null`. Creation is not proof of payment completion: use the
+returned phase and `finished` fields.
+
+Balances expose `business()` and `personal()` lists; their raw content is directly
+`['business' => [...], 'personal' => [...]]`. Transfers return business/personal
+objects. `bills->pdf()` returns the exact PDF bytes, without base64 or a JSON
+envelope; the SDK does not choose filenames or write files. `rates->xml()` returns
+raw XML without parsing entities.
 
 ```php
-$filters = ['created_from' => '2026-01-01 00:00:00'];
+$filters = ['created_from' => '2026-11-01', 'page_size' => 20];
 $page = $client->payments->search($filters);
 $entries = $page->entries();
-if ($page->nextCursor !== null && $page->nextCursor !== '') {
-    $next = $client->payments->search($filters, $page->nextCursor);
+if ($page->hasMore && $page->nextCursor !== null && $page->nextCursor !== '') {
+    $next = $client->payments->search($filters + ['cursor' => $page->nextCursor]);
 }
 ```
 
-A page exposes `itemCount`, `hasMore`, `hasPages`, `nextCursor`, `previousCursor`,
-and `pageSize`. `hasMore` is derived from a nonempty `nextCursor`. The server's raw
-`has_more` flag actually indicates multiple pages and can remain true on the last
-page; it is preserved as `hasPages` and in `content()`. Follow `nextCursor` when
-requesting the next page. Cursors are opaque query values, including on POST requests. No
-operation automatically traverses pages, follows links or retries a request.
-A timeout can mean that the server completed the operation. Reconcile its status
-before retrying. For documented idempotent creates, reuse the exact same
-`merchant_order`; do not assume transfers or refunds are idempotent.
+`Page` exposes `itemCount`, `pageSize`, `hasMore`, `nextCursor`, `previousCursor`
+and `entries()`. `hasMore` is the server's `has_more` flag. Filters and opaque
+cursors are query parameters. `page_size` is 1–100 (server default 15); dates are
+`YYYY-MM-DD` or ISO 8601. Payment and payout lists additionally accept
+`merchant_order`; bills accept `phase`, `recipient`, `query`, `expires_from`,
+`expires_to`. No request automatically follows pagination or retries.
 
-For withdrawals, keep `merchant_order` unique across **all merchants belonging to
-the same account owner**, including historical payouts associated with
-other merchants of that owner. The current API looks up existing payouts by owner and order ID,
-so two different merchants of that owner must not reuse it. Use a stable merchant
-prefix in your application's order IDs (for example `shop-a-order-123` and
-`shop-b-order-123`). The SDK sends your ID unchanged: it does not prefix it,
-generate a replacement, or promise merchant-scoped withdrawal idempotency.
-Invoice orders are merchant-scoped; deposit-address reuse also considers asset
-and network.
+A timeout leaves the operation outcome unknown. Reconcile by reference/order
+before retrying a financial request. Duplicate orders or invalid state transitions
+can return 409 `conflict`. Do not assume a retry will return an existing resource.
 
-For invoice creation, `refresh_existing` refreshes eligible cancelled API invoices.
-It may keep the existing payment address when its underlying order can be reused;
-a new address is not guaranteed. Read `destination` and `expires_on` from the
-returned result rather than inferring them from the refresh flag.
+## Billing
 
-## Request and webhook authentication
-
-Protected API requests send three headers:
-
-```text
-merchant: <merchant UUID>
-X-Timestamp: <current Unix time in seconds>
-X-Signature: <lowercase hexadecimal HMAC-SHA256>
+```php
+$bill = $client->bills->create([
+    'subject' => 'Consulting',
+    'category' => 'amount',
+    'pricing' => ['asset_code' => 'USD', 'pre_tax_total' => '100.00',
+        'tax_total' => '0', 'fee_deducted' => false],
+    'contacts' => ['contact_address' => 'buyer@example.com'],
+]);
+// Creation content contains billing_record, merchant_details_complete, warning.
+$pdfBytes = $client->bills->pdf($invoiceReference);
+$delivery = $client->bills->deliver($invoiceReference, [
+    'contacts' => ['contact_address' => 'buyer@example.com'],
+    'use_merchant_contact' => false,
+]);
 ```
 
-The signature is `hash_hmac('sha256', $timestamp . '.' . $body, $apiKey)`.
-JSON is serialized once and the exact bytes are sent. Empty POST parameters are
-`{}`; GET bodies are empty and query parameters are excluded from the signature.
-A current timestamp is generated for each request. Keep your clock synchronized:
-the API accepts an absolute time difference of at most 300 seconds. The API key
-itself is never sent. The legacy `sign` header is not sent and there is no
-fallback to legacy authentication.
+## Request authentication
 
-The SDK selects the key per operation: refunds use payout, while
-`depositAddresses->refundBlocked` uses payment. Public rates carry no
-`merchant`, `X-Timestamp`, or `X-Signature` headers.
+Protected requests send `X-Merchant`, `X-Timestamp` and `X-Signature`.
+The signature is lowercase hexadecimal HMAC-SHA256:
 
-Incoming webhooks use the same timestamped HMAC-SHA256 construction:
+```text
+canonical = timestamp + "." + METHOD + "." + path_with_query + "." + raw_body
+signature = HMAC-SHA256(canonical, api_key)
+```
+
+The method is uppercase; the path starts `/api/v1` and includes the exact encoded
+query as sent. GET and bodyless actions use empty bytes. JSON is encoded once and
+those same bytes are signed and sent. Requests with bodies use
+`Content-Type: application/json; charset=utf-8`. Keep clocks synchronized; the
+timestamp tolerance is 300 seconds. Keys are never sent as headers or body fields.
+
+Payment key: payments except refunds, receiving addresses (including refund-blocked),
+Billing, balances, ledger and settings. Payout key: payment refunds, cashouts and
+fund transfers. Public rates send no credentials. There is no legacy fallback.
+
+## Webhook verification
+
+Webhook signatures use **`timestamp.body`**, without method or path. Pass the
+original raw bytes and `X-Timestamp` / `X-Signature` headers:
 
 ```php
 use SouthApi\Security\WebhookVerifier;
-
 $verifier = new WebhookVerifier(new Credentials(
     paymentKey: $paymentKey,
     payoutKey: $payoutKey,
 ));
-$event = $verifier->verify($rawBody, $timestampHeader, $signatureHeader);
-// Durably enqueue the verified event, then return HTTP 200 from your handler.
+$event = $verifier->verify($rawBody, $timestampHeader, $signatureHeader)->arrayContent();
+// $event is ['event_kind' => ..., 'data' => [...]].
+// Durably enqueue it, then acknowledge with HTTP 200 in your handler.
 ```
 
-Pass the original body and `X-Timestamp` / `X-Signature` headers. Verification
-uses HMAC-SHA256 of `timestamp.body`, constant-time comparison and a 300-second
-absolute clock tolerance. Keep the server clock synchronized. Payment/deposit use
-the payment key; withdrawal/blocked_address_payment use the payout key. Missing
-keys, unsigned events, unknown event kinds, malformed headers, stale signatures
-and tampered data are rejected. Default maximum webhook size is 1 MiB.
+`payment` and `deposit` use the payment key; `withdrawal` and `blocked_deposit`
+use the payout key. The existing webhook key assignment is retained; the approved
+contract changes the blocked event name and payload, without defining a new key
+assignment. The verifier never tries both keys. It checks the nested envelope,
+constant-time signature equality, timestamp tolerance (300 seconds) and body size
+(default 1 MiB). Unknown kinds, old flat payloads, missing keys, body-only
+signatures and malformed/stale signatures are rejected.
 
-Only timestamped HMAC-SHA256 webhooks are supported. Body-only signatures are rejected.
+Verification does not update orders, send HTTP responses or deduplicate events.
+Use references and phases inside `data` to make processing idempotent. Retries can
+carry updated state and fresh signatures. A valid timestamp does not prevent
+repeated processing within the time window.
 
-The verifier does not send HTTP responses, update orders or deduplicate events.
-After verification, durably enqueue work and acknowledge with HTTP **200**.
-Process duplicates idempotently using `payment_reference` or
-`withdrawal_reference` and `payment_phase`, according to the event contract.
-A timestamp window alone does not prevent duplicate processing. Each retry may
-carry the current state and a fresh signature. Invalid requests must not be
-acknowledged as successfully verified. See the inert functions in `examples/`.
-
-## Errors, secrets, and networking
+## Errors, secrets and networking
 
 Catch `SouthApi\Exceptions\SdkException`, or its `ConfigurationException`,
-`TransportException`, `ProtocolException`, `WebhookException`, and `ApiException`
-subclasses. `ApiException` exposes safe `status` and `errorCode`; server messages,
-validation details and raw transport exceptions are deliberately not included.
-A transport failure does not determine whether a financial operation completed.
+`TransportException`, `ProtocolException`, `WebhookException`, `ApiException`
+subclasses. `ApiException` exposes safe `status` and `errorCode`, including
+`bad_request`, `method_not_allowed`, `conflict`, `rate_limited`. Server messages,
+validation details and raw transport exceptions are not exposed in exceptions.
 
-Keys stay in memory. The SDK does not read environment files, persist secrets,
-emit telemetry, or log bodies/headers. Common debug output is redacted and
-credential-bearing objects cannot be serialized. Success data remains sensitive.
-PHP code, custom transports/middleware, reflection, exports and process dumps in
-your application can access your memory; redaction is not a sandbox. Configure
-`zend.exception_ignore_args=1` in production, keep debug pages off, and prevent
-logging of sensitive input/output in your own application. Sensitive parameters
-are also annotated for PHP exception traces.
+The SDK does not persist secrets, log headers/bodies or emit telemetry. Common
+debug output is redacted; credential-bearing objects cannot be serialized.
+Success results are sensitive merchant data. Your application, custom transport,
+reflection and process dumps can still access memory: redaction is not isolation.
+Use `zend.exception_ignore_args=1` in production, disable debug pages and prevent
+sensitive application logging.
 
-The default cURL adapter bounds response writes during download and blocks internal
-transport retries as well as application retries. Default HTTP behavior verifies TLS certificates/hostnames, forbids redirects,
-disables debug output, and uses a 5-second connect / 30-second request timeout.
-The response limit is 10 MiB, configurable explicitly. Changing the origin or
-injecting `SouthApi\Http\Transport` is trusted application configuration; custom
-implementations and middleware must preserve transport restrictions and keep data
-private. Returned callback/checkout URLs and cursors are never fetched by the SDK.
-
-This SDK follows the current merchant API implementation when it differs from
-the supplied historical reference, including pagination and compatibility modes. Offline tests establish
-local contract conformance; deployed interoperability must be verified separately.
+The default cURL transport verifies TLS certificates and hostnames, forbids
+redirects and disables automatic retries and debugging. Defaults: 5-second
+connect timeout, 30-second request timeout, 10 MiB response limit. PDF uses the
+same limit, configurable through `Configuration`. Origins and custom transports
+are trusted application configuration, never user input. Returned URLs and
+cursors are not fetched automatically.
 
 ## Development checks
 
-From the development checkout (these tools and scripts are excluded from the
-runtime ZIP):
+In the development checkout (excluded from the runtime ZIP):
 
 ```sh
 composer install
 composer check
 composer audit
+XDEBUG_MODE=coverage composer infection
 composer release
 composer consumer
 ```
 
-`composer test` runs PHPUnit; `composer analyse` runs PHPStan at level 8 over
-source, tests, examples and PHP tools, without a baseline. Tests are offline and
-use synthetic data. The release builder requires `ext-zip`, allowlists files,
-scans them, and inspects the finished ZIP; the consumer check installs its actual
-runtime contents into a temporary directory outside the checkout. Development
-files and local integration notes are excluded. The runtime manifest in the ZIP
-has development scripts/dependencies removed. Review the manifest and license
-before merchant delivery; building an archive does not publish it.
+PHPUnit tests run offline using synthetic fixtures. PHPStan checks source, tests,
+examples and tools at level 8 without a baseline. Release tooling requires
+`ext-zip`, scans allowlisted files and inspects the ZIP. The consumer check installs
+the archive in a clean directory using runtime dependencies only. Internal notes,
+source contracts, tests, tools, credentials and parent project files are excluded.
+These checks validate the documented contract; deployed API interoperability must
+be checked when the matching server release is available.
+
+`composer infection` runs mutation testing over all `src/` files with the default
+mutators, including uncovered code, and counts timeouts as undetected mutations.
+It requires PCOV or Xdebug coverage support. Local HTML, JSON and text reports
+are written to `.infection/` and excluded from distribution. No minimum mutation
+score is configured: completion alone does not mean all mutations were detected.

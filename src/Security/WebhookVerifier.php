@@ -42,12 +42,12 @@ final class WebhookVerifier
         } catch (JsonException) {
             throw new WebhookException('Webhook authentication failed.');
         }
-        if (!is_array($payload)) {
+        if (!is_array($payload) || !isset($payload['data']) || !is_array($payload['data']) || array_is_list($payload['data'])) {
             throw new WebhookException('Webhook authentication failed.');
         }
         $type = match ($payload['event_kind'] ?? null) {
             'payment', 'deposit' => KeyType::Payment,
-            'withdrawal', 'blocked_address_payment' => KeyType::Payout,
+            'withdrawal', 'blocked_deposit' => KeyType::Payout,
             default => null,
         };
         if ($type === null) {

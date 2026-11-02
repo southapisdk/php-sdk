@@ -6,7 +6,7 @@ namespace SouthApi\Responses;
 
 use SouthApi\Exceptions\ProtocolException;
 
-/** Preserves the server's content[0].balances envelope and provides wallet accessors. */
+/** Provides wallet accessors for the funds response. */
 final class BalanceResult extends Result
 {
     /** @var array<string, list<array<array-key, mixed>>> */
@@ -16,16 +16,9 @@ final class BalanceResult extends Result
     public function __construct(#[\SensitiveParameter] array $content)
     {
         parent::__construct($content);
-        if (!array_is_list($content) || count($content) !== 1 || !is_array($content[0])) {
-            throw new ProtocolException('Invalid balances response.');
-        }
-        $balances = $content[0]['balances'] ?? [];
-        if (!is_array($balances)) {
-            throw new ProtocolException('Invalid balances response.');
-        }
         $wallets = [];
         foreach (['business', 'personal'] as $kind) {
-            $entries = $balances[$kind] ?? [];
+            $entries = $content[$kind] ?? null;
             if (!is_array($entries) || !array_is_list($entries)) {
                 throw new ProtocolException('Invalid balances response.');
             }

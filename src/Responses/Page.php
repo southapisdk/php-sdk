@@ -12,8 +12,6 @@ final class Page extends Result
     private readonly array $entries;
     public readonly int $itemCount;
     public readonly bool $hasMore;
-    /** Original server has_more flag: indicates multiple pages, not necessarily a next page. */
-    public readonly bool $hasPages;
     public readonly ?string $nextCursor;
     public readonly ?string $previousCursor;
     public readonly int $pageSize;
@@ -43,8 +41,7 @@ final class Page extends Result
         }
         $this->entries = $validated;
         $this->itemCount = $pagination['item_count'];
-        $this->hasPages = $pagination['has_more'];
-        $this->hasMore = $pagination['next_cursor'] !== null && $pagination['next_cursor'] !== '';
+        $this->hasMore = $pagination['has_more'];
         $this->nextCursor = $pagination['next_cursor'];
         $this->previousCursor = $pagination['previous_cursor'];
         $this->pageSize = $pagination['page_size'];
