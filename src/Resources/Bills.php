@@ -31,14 +31,14 @@ final class Bills extends Resource
         return $this->session->binary('/api/v1/bills/' . $this->segment($reference) . '/pdf', KeyType::Payment, 'application/pdf');
     }
 
-    /** @param array{contacts?: array{contact_address?: string|null, support_address?: string|null}, use_merchant_contact?: bool} $parameters */
-    public function deliver(#[\SensitiveParameter] string $reference, #[\SensitiveParameter] array $parameters = []): Result
+    /** @param array{contacts: array{contact_address: string, support_address?: string|null}, use_merchant_contact: bool} $parameters */
+    public function deliver(#[\SensitiveParameter] string $reference, #[\SensitiveParameter] array $parameters): Result
     {
         return $this->session->json('POST', '/api/v1/bills/' . $this->segment($reference) . '/delivery', KeyType::Payment, $parameters, []);
     }
 
-    /** @param array{contacts?: array{contact_address?: string|null, support_address?: string|null}, use_merchant_contact?: bool} $parameters */
-    public function retryDelivery(#[\SensitiveParameter] string $reference, #[\SensitiveParameter] array $parameters = []): Result
+    /** @param array{contacts?: array{contact_address?: string|null, support_address?: string|null}, use_merchant_contact: bool} $parameters */
+    public function retryDelivery(#[\SensitiveParameter] string $reference, #[\SensitiveParameter] array $parameters): Result
     {
         return $this->session->json('POST', '/api/v1/bills/' . $this->segment($reference) . '/delivery/retry', KeyType::Payment, $parameters, []);
     }

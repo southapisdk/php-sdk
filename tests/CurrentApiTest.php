@@ -52,9 +52,9 @@ final class CurrentApiTest extends TestCase
     public function testEncodedQueryIsIncludedInSignature(): void
     {
         $transport = new RecordingTransport(new Response(200, '{"outcome":0,"content":{"entries":[],"pagination":{"item_count":0,"page_size":10,"has_more":false,"next_cursor":null,"previous_cursor":null}}}'));
-        $this->client($transport)->payments->search(['cursor' => 'a+/= б', 'page_size' => 10]);
+        $this->client($transport)->bills->search(['cursor' => 'a+/= б', 'page_size' => 10]);
         $request = $transport->requests[0];
-        $target = '/api/v1/charges?cursor=a%2B%2F%3D%20%D0%B1&page_size=10';
+        $target = '/api/v1/bills?cursor=a%2B%2F%3D%20%D0%B1&page_size=10';
         self::assertStringEndsWith($target, $request->url);
         self::assertSame('', $request->body);
         self::assertSame(hash_hmac('sha256', $request->headers['X-Timestamp'] . '.GET.' . $target . '.', 'test-payment-key'), $request->headers['X-Signature']);
@@ -80,9 +80,9 @@ final class CurrentApiTest extends TestCase
 
     public function testPayoutOrderLimitAndStrictBoolean(): void
     {
-        $values = ['merchant_order' => str_repeat('a', 100), 'amount' => ['display_total' => '1', 'asset_code' => 'USDT'], 'chain' => ['destination' => 'synthetic-address'], 'fee_deducted' => false, 'priority_tier' => 'low'];
+        $values = ['merchant_order' => str_repeat('a', 128), 'amount' => ['display_total' => '1', 'asset_code' => 'USDT'], 'chain' => ['destination' => 'synthetic-address'], 'fee_deducted' => false, 'priority_tier' => 'economy'];
         Parameters::validate('POST', '/api/v1/cashouts', $values, []);
-        foreach (['merchant_order' => str_repeat('a', 101), 'fee_deducted' => '0'] as $field => $invalid) {
+        foreach (['merchant_order' => str_repeat('a', 129), 'fee_deducted' => '0'] as $field => $invalid) {
             try {
                 Parameters::validate('POST', '/api/v1/cashouts', array_replace($values, [$field => $invalid]), []);
                 self::fail('Invalid parameter accepted.');
@@ -95,12 +95,70 @@ final class CurrentApiTest extends TestCase
     public function testInvalidFiltersFailBeforeTransport(): void
     {
         $transport = new RecordingTransport();
-        foreach ([['page_size' => 0], ['page_size' => 101], ['unknown' => 'secret'], ['created_from' => '2026-01-01 10:00:00']] as $filters) {
+        foreach ([['page_size' => 0], ['page_size' => 101], ['unknown' => 'secret'], ['created_from' => '2026-01-01']] as $filters) {
             try {
                 $this->client($transport)->payments->search($filters);
                 self::fail('Invalid filter accepted.');
             } catch (ConfigurationException) {
                 self::assertCount(0, $transport->requests);
+            }
+        }
+    }
+
+    public function testPaymentFiltersUseUtcWithoutConversionAndPreserveResponseDates(): void
+    {
+        $transport = new RecordingTransport(new Response(200, '{"outcome":0,"content":{"entries":[{"created_on":"2026-11-13T23:33:00Z","updated_on":null}],"pagination":{"item_count":1,"page_size":15,"has_more":false,"next_cursor":null,"previous_cursor":null}}}'));
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Minsk');
+        try {
+            $page = $this->client($transport)->payments->search([
+                'created_from' => '2026-11-13 23:33:00',
+                'created_to' => '2026-11-14 00:33:00',
+            ]);
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
+        $request = $transport->requests[0];
+        $target = '/api/v1/charges?created_from=2026-11-13%2023%3A33%3A00&created_to=2026-11-14%2000%3A33%3A00';
+        self::assertStringEndsWith($target, $request->url);
+        self::assertSame('', $request->body);
+        self::assertSame(hash_hmac('sha256', $request->headers['X-Timestamp'] . '.GET.' . $target . '.', 'test-payment-key'), $request->headers['X-Signature']);
+        self::assertSame('2026-11-13T23:33:00Z', $page->entries()[0]['created_on']);
+        self::assertNull($page->entries()[0]['updated_on']);
+    }
+
+    public function testPaymentDatesRejectInvalidDatesAndOtherFormats(): void
+    {
+        $transport = new RecordingTransport();
+        foreach (['2026-02-30 10:00:00', '2026-11-13 24:00:00', '2026-11-13',
+            '2026-11-13T11:33:00Z', '2026-11-13T11:33:00+00:00', '2026-11-13T14:33:00+03:00',
+            '2026-11-13 11:33:00.123456', "2026-11-13 11:33:00\0", 'tomorrow'] as $value) {
+            foreach (['created_from', 'created_to'] as $field) {
+                try {
+                    $this->client($transport)->payments->search([$field => $value]);
+                    self::fail('Invalid payment date accepted.');
+                } catch (ConfigurationException) {
+                    self::assertCount(0, $transport->requests);
+                }
+            }
+        }
+    }
+
+    public function testOtherListsKeepTheirDateFormats(): void
+    {
+        Parameters::validate('GET', '/api/v1/cashouts', null, ['created_from' => '2026-11-13', 'created_to' => '2026-11-14T00:33:00+03:00']);
+        Parameters::validate('GET', '/api/v1/bills', null, ['created_from' => '2026-11-13', 'page_size' => 100]);
+        foreach ([
+            ['/api/v1/bills', ['created_from' => '2026-11-13T00:00:00Z']],
+            ['/api/v1/charges', ['page_size' => 15]],
+            ['/api/v1/receiving-addresses/test-ref/charges', ['created_from' => '2026-11-13']],
+            ['/api/v1/ledger', ['created_to' => '2026-11-13']],
+        ] as [$path, $filters]) {
+            try {
+                Parameters::validate('GET', $path, null, $filters);
+                self::fail('Unsupported filter accepted.');
+            } catch (ConfigurationException $error) {
+                self::assertSame('Request parameters do not match the API contract.', $error->getMessage());
             }
         }
     }

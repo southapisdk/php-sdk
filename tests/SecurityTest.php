@@ -115,12 +115,12 @@ final class SecurityTest extends TestCase
     {
         $transport = new RecordingTransport(new Response(200, '{"outcome":0,"content":{"entries":[],"pagination":{"item_count":0,"has_more":true,"next_cursor":"https://other.example/","previous_cursor":null,"page_size":15}}}'));
         $client = new Client($this->credentials(), transport: $transport);
-        $first = $client->payments->search(['created_from' => '2026-01-01']);
+        $first = $client->payments->search(['created_from' => '2026-01-01 00:00:00']);
         self::assertCount(1, $transport->requests);
-        $client->payments->search(['created_from' => '2026-01-01', 'cursor' => $first->nextCursor ?? '']);
+        $client->payments->search(['created_from' => '2026-01-01 00:00:00', 'cursor' => $first->nextCursor ?? '']);
         self::assertCount(2, $transport->requests);
         self::assertSame($transport->requests[0]->body, $transport->requests[1]->body);
-        self::assertSame('https://southapi.com/api/v1/charges?created_from=2026-01-01&cursor=https%3A%2F%2Fother.example%2F', $transport->requests[1]->url);
+        self::assertSame('https://southapi.com/api/v1/charges?created_from=2026-01-01%2000%3A00%3A00&cursor=https%3A%2F%2Fother.example%2F', $transport->requests[1]->url);
     }
 
     /** @return iterable<string, array{Response, class-string<SdkException>}> */

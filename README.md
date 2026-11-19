@@ -68,7 +68,7 @@ from previous request shapes takes place.
 
 | Resource | Methods | HTTP resource |
 |---|---|---|
-| `payments` | `create(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `qrCode(ref)`, `retryCallback(ref)`, `retryCallbackByTransaction(hash)`, `markPaid(ref)`, `refund(ref, body)`, `options()` | charges, charge-options |
+| `payments` | `create(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `qrCode(ref)`, `retryCallback(ref)`, `retryCallbackByTransaction(hash)`, `retryCallbackByOrder(order)`, `markPaid(ref)`, `refund(ref, body)`, `options()` | charges, charge-options |
 | `depositAddresses` | `create(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `qrCode(ref)`, `payments(ref, filters)`, `paymentsByOrder(order, filters)`, `block(ref, forceRefund)`, `blockByOrder(order, forceRefund)`, `refundBlocked(ref, destination)`, `refundBlockedByOrder(order, destination)` | receiving-addresses |
 | `withdrawals` | `create(body)`, `calculate(body)`, `search(filters)`, `lookup(ref)`, `lookupByOrder(order)`, `cancel(ref)`, `cancelByOrder(order)`, `options()`, `priority(asset, chain)` | cashouts, cashout-options |
 | `bills` | `create(body)`, `search(filters)`, `lookup(ref)`, `pdf(ref)`, `deliver(ref, body)`, `retryDelivery(ref, body)`, `disable(ref)`, `extend(ref)` | bills |
@@ -110,12 +110,14 @@ $refund = $client->payments->refund($paymentReference, [
 
 Amounts and rates are decimal strings, never floats. Flags are PHP booleans.
 Payment `pricing.fee_deducted` is an integer percentage (0–100); payout and refund
-`fee_deducted` are booleans. Payout orders have 1–100 characters, payment orders
-1–128, using letters, numbers, combining marks, underscores or dashes.
+`fee_deducted` are booleans. Payment and payout orders have 1–128 characters, using letters, numbers, combining marks, underscores or dashes.
 Destinations have 10–128 characters with the same character rule; pass memo
 separately where supported. Priority values come from `withdrawals->priority()`;
 the SDK sends the chosen value unchanged. Quote payloads exclude `merchant_order`,
 `links`, `simulation`, `chain.memo` and `amount.source_asset`.
+Charge, cashout, quote and refund amounts have a 40-character limit. Callback URLs
+must be public HTTP(S) addresses without credentials. The server checks DNS and
+its outbound address policy. Return and success URLs must use HTTP(S).
 The SDK checks basic input shapes; the API remains responsible for business
 validation, account permissions and supported assets.
 
@@ -137,7 +139,7 @@ as the third argument (`contentType`) of `SouthApi\Http\Response`. `rates->xml()
 raw XML without parsing entities.
 
 ```php
-$filters = ['created_from' => '2026-11-01', 'page_size' => 20];
+$filters = ['created_from' => '2026-11-01 00:00:00'];
 $page = $client->payments->search($filters);
 $entries = $page->entries();
 if ($page->hasMore && $page->nextCursor !== null && $page->nextCursor !== '') {
@@ -147,10 +149,21 @@ if ($page->hasMore && $page->nextCursor !== null && $page->nextCursor !== '') {
 
 `Page` exposes `itemCount`, `pageSize`, `hasMore`, `nextCursor`, `previousCursor`
 and `entries()`. `hasMore` is the server's `has_more` flag. Filters and opaque
-cursors are query parameters. `page_size` is 1–100 (server default 15); dates are
-`YYYY-MM-DD` or ISO 8601. Payment and payout lists additionally accept
-`merchant_order`; bills accept `phase`, `recipient`, `query`, `expires_from`,
-`expires_to`. No request automatically follows pagination or retries.
+cursors are query parameters. All lists accept a cursor. Only bills accept a
+requested page size (1–100). For other lists read the actual size from the response.
+Payments and cashouts accept `merchant_order` and creation date bounds. Cashouts
+accept a calendar date or ISO 8601 timestamp. Bills accept calendar dates
+(`YYYY-MM-DD`) for creation and expiration bounds, plus `phase`, `recipient`
+and `query`. Address lists, address payment lists and ledger accept only a cursor.
+
+For `payments->search()` (`GET /api/v1/charges`), `created_from` and `created_to`
+are inclusive UTC bounds in `YYYY-MM-DD HH:mm:ss` format. Omit a bound to leave
+that side unrestricted. Date-only values, ISO 8601 strings and offsets are rejected.
+Pass UTC directly: the SDK does not add three hours or use the local PHP timezone.
+For example, `2026-11-13 11:33:00` means 11:33 UTC. The SDK URL-encodes the space
+and signs the resulting query string. Payment response fields `created_on`,
+`updated_on` and `checkout.expires_on` remain ISO 8601 UTC strings ending in `Z`
+(or `null`), as returned by the API.
 
 A timeout leaves the operation outcome unknown. Reconcile by reference/order
 before retrying a financial request. Duplicate orders or invalid state transitions
@@ -161,6 +174,7 @@ can return 409 `conflict`. Do not assume a retry will return an existing resourc
 ```php
 $bill = $client->bills->create([
     'subject' => 'Consulting',
+    'recipient' => ['recipient_details_required' => true],
     'category' => 'amount',
     'pricing' => ['asset_code' => 'USD', 'pre_tax_total' => '100.00',
         'tax_total' => '0', 'fee_deducted' => false],
@@ -211,9 +225,7 @@ $event = $verifier->verify($rawBody, $timestampHeader, $signatureHeader)->arrayC
 ```
 
 `payment` and `deposit` use the payment key; `withdrawal` and `blocked_deposit`
-use the payout key. The existing webhook key assignment is retained; the approved
-contract changes the blocked event name and payload, without defining a new key
-assignment. The verifier never tries both keys. It checks the nested envelope,
+use the payout key. The verifier never tries both keys. It checks the nested envelope,
 constant-time signature equality, timestamp tolerance (300 seconds) and body size
 (default 1 MiB). Unknown kinds, old flat payloads, missing keys, body-only
 signatures and malformed/stale signatures are rejected.

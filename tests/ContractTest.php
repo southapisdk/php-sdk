@@ -71,7 +71,7 @@ final class ContractTest extends TestCase
 
     public function testInventoryContainsExactlyDocumentedSections(): void
     {
-        self::assertCount(48, Operations::all());
+        self::assertCount(49, Operations::all());
         self::assertArrayHasKey('rates-xml', Operations::all());
         self::assertSame('payment', Operations::all()['address-refund']['key']);
     }

@@ -16,6 +16,11 @@ final class ContractValidationTest extends TestCase
     /** @return iterable<string, array{array<string, mixed>}> */
     public static function invalidChargeFields(): iterable
     {
+        yield 'callback scheme' => [['links' => ['callback_link' => 'ftp://example.com/callback']]];
+        yield 'callback credentials' => [['links' => ['callback_link' => 'https://user@example.com/hook']]];
+        yield 'loopback callback' => [['links' => ['callback_link' => 'http://127.0.0.1/hook']]];
+        yield 'tolerance exceeds five percent' => [['pricing' => ['asset_code' => 'USD', 'display_total' => '1', 'payment_tolerance_rate' => '5.01']]];
+        yield 'expiry below minimum' => [['checkout' => ['expires_in' => 299]]];
         yield 'amount array' => [['pricing' => ['display_total' => ['1'], 'asset_code' => 'USD']]];
         yield 'amount empty array' => [['pricing' => ['display_total' => [], 'asset_code' => 'USD']]];
         yield 'flag array' => [['checkout' => ['partial_allowed' => [true]]]];
@@ -40,24 +45,27 @@ final class ContractValidationTest extends TestCase
         }
     }
 
-    public function testFortyCharacterLimitOnlyAppliesToChargeAmount(): void
+    public function testAmountLengthDependsOnOperation(): void
     {
         $transport = new RecordingTransport(new Response(201, '{"outcome":0,"content":{}}'));
         $client = $this->client($transport);
         $boundary = '1.' . str_repeat('0', 38);
         $long = $boundary . '1';
         $client->payments->create(['merchant_order' => 'order-1', 'pricing' => ['display_total' => $boundary, 'asset_code' => 'USD']]);
-        $client->withdrawals->create(['merchant_order' => 'order-2', 'amount' => ['display_total' => $long, 'asset_code' => 'USD'], 'chain' => ['destination' => 'synthetic-address'], 'fee_deducted' => true]);
-        $client->payments->refund('ref', ['refund' => ['display_total' => $long], 'destination' => 'synthetic-address', 'fee_deducted' => false]);
-        $client->bills->create(['subject' => 'Test', 'category' => 'amount', 'pricing' => ['asset_code' => 'USD', 'pre_tax_total' => $long, 'tax_total' => $long], 'line_items' => [['line_label' => 'Test', 'units' => 1, 'unit_price' => $long]]]);
         $client->transfers->toPersonal($long, 'USD');
-        self::assertCount(5, $transport->requests);
-        self::assertStringContainsString($long, $transport->requests[1]->body);
-        try {
-            $client->payments->create(['merchant_order' => 'order-3', 'pricing' => ['display_total' => $long, 'asset_code' => 'USD']]);
-            self::fail('Charge amount length ignored.');
-        } catch (ConfigurationException) {
-            self::assertCount(5, $transport->requests);
+        $cashout = ['amount' => ['display_total' => $long, 'asset_code' => 'USD'], 'chain' => ['destination' => 'synthetic-address'], 'fee_deducted' => true];
+        foreach ([
+            fn () => $client->payments->create(['merchant_order' => 'order-1', 'pricing' => ['display_total' => $long, 'asset_code' => 'USD']]),
+            fn () => $client->withdrawals->create($cashout + ['merchant_order' => 'order-2']),
+            fn () => $client->withdrawals->calculate($cashout),
+            fn () => $client->payments->refund('ref', ['refund' => ['display_total' => $long], 'destination' => 'synthetic-address', 'fee_deducted' => false]),
+        ] as $send) {
+            try {
+                $send();
+                self::fail('Amount limit ignored.');
+            } catch (ConfigurationException) {
+                self::assertCount(2, $transport->requests);
+            }
         }
     }
 

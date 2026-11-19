@@ -15,7 +15,7 @@ final class Payments extends Resource
         return $this->session->json('POST', '/api/v1/charges', KeyType::Payment, $parameters, []);
     }
 
-    /** @param array<string, string|int> $filters */
+    /** @param array<string, string|int> $filters created_from/created_to: inclusive UTC bounds in Y-m-d H:i:s format. */
     public function search(#[\SensitiveParameter] array $filters = []): Page
     {
         return $this->session->page('/api/v1/charges', KeyType::Payment, $filters);
@@ -44,6 +44,11 @@ final class Payments extends Resource
     public function markPaid(#[\SensitiveParameter] string $paymentReference): Result
     {
         return $this->session->json('POST', '/api/v1/charges/' . $this->segment($paymentReference) . '/mark-paid', KeyType::Payment, null, []);
+    }
+
+    public function retryCallbackByOrder(#[\SensitiveParameter] string $merchantOrder): Result
+    {
+        return $this->session->json('POST', '/api/v1/charges/callbacks', KeyType::Payment, ['merchant_order' => $merchantOrder]);
     }
 
     public function retryCallbackByTransaction(#[\SensitiveParameter] string $transactionHash): Result
